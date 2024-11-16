@@ -24,7 +24,7 @@ Should work with any other versions too
 1. Launch PowerShell as **ADMINISTRATOR** and execute the following commands
 ```{powershell}
 Set-ExecutionPolicy Unrestricted -Force
-iwr -useb https://itsnileshhere.github.io/Windows-Iso-Debloater/download.ps1 | iex
+iwr -useb https://itsnileshhere.github.io/Windows-ISO-Debloater/download.ps1 | iex
 ```
 *Alternatively, you can manually download the script from [here](https://github.com/itsNileshHere/Windows-ISO-Debloater/releases/latest) and execute it using PowerShell with **ADMINISTRATOR** privileges.*
 

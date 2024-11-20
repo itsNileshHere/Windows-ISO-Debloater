@@ -48,6 +48,10 @@ The script downloads "oscdimg.exe", used to generate the ISO, from Microsoft's w
 3. After installing, navigate to "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg". The "oscdimg.exe" file will be located there.
 4. Copy the file and paste it alongside the script."
 
+## Credits
+1. [tiny11builder](https://github.com/ntdevlabs/tiny11builder) for idea 
+2. [Winaero](https://winaero.com/) for a bunch of Registry Tweaks
+
 ---
 
 **Note:** This script modifies the Windows ISO. Use it at your own risk, and ensure you have a backup before running.

@@ -588,7 +588,7 @@ if ($convertToEsd -eq 'Y' -or $convertToEsd -eq 'y') {
     Write-LogMessage "Conversion to ESD completed"
 } else {
     Write-Host "Conversion to ESD skipped"
-    dism /Export-Image /SourceImageFile:$destinationPath\sources\install.wim /SourceIndex:$SourceIndex /DestinationImageFile:$destinationPath\sources\install2.wim /compress:recovery
+    dism /Export-Image /SourceImageFile:$destinationPath\sources\install.wim /SourceIndex:$SourceIndex /DestinationImageFile:$destinationPath\sources\install2.wim /compress:max
     Remove-Item -Path "$destinationPath\sources\install.wim" -Force
     Rename-Item -Path "$destinationPath\sources\install2.wim" -NewName "install.wim" -Force
 }

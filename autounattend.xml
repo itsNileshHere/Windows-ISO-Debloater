@@ -23,5 +23,4 @@
             </UserData>
         </component>
     </settings>
-    <cpi:offlineImage cpi:source="wim:c:/sources/install.wim#Windows 11" xmlns:cpi="urn:schemas-microsoft-com:cpi" />
 </unattend>

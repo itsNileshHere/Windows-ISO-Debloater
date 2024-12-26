@@ -1,6 +1,6 @@
 # $scriptUrl = "https://raw.githubusercontent.com/itsNileshHere/Windows-ISO-Debloater/main/isoDebloaterScript.ps1"
-$scriptUrl = "https://itsnileshhere.github.io/Windows-Iso-Debloater/isoDebloaterScript.ps1"
-$autounattendXmlUrl = "https://itsnileshhere.github.io/Windows-Iso-Debloater/autounattend.xml"
+$scriptUrl = "https://itsnileshhere.github.io/Windows-ISO-Debloater/isoDebloaterScript.ps1"
+$autounattendXmlUrl = "https://itsnileshhere.github.io/Windows-ISO-Debloater/autounattend.xml"
 
 $scriptDirectory = "$env:SystemDrive\scriptdir"
 

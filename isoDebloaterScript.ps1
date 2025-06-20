@@ -218,9 +218,24 @@ $installMountDir = "$env:SystemDrive\WIDTemp\mountdir\installWIM"   # Mount Dire
 # Copy Files
 Write-Host "`nCopying files from $sourceDrive to $destinationPath"
 Write-Log -msg "Copying files from $sourceDrive to $destinationPath"
-New-Item -ItemType Directory -Path $destinationPath 2>&1 | Write-Log
-xcopy.exe $sourceDrive $destinationPath /E /I /H /R /Y /J 2>&1 | Write-Log
-Dismount-DiskImage -ImagePath "$isoFilePath" 2>&1 | Write-Log
+try {
+    if (-not (Test-Path $destinationPath)) { New-Item -ItemType Directory -Path $destinationPath -Force -EA Stop | Out-Null }
+    Write-Log -msg "Starting file copy operation..."
+    
+    # Using Robocopy to copy files
+    $robocopyOutput = & robocopy.exe $sourceDrive $destinationPath /E /COPY:DAT /R:3 /W:5 /MT:8 /NFL /NDL /NP 2>&1
+    $robocopyExitCode = $LASTEXITCODE
+    $robocopyOutput | Write-Log
+    if ($robocopyExitCode -le 7) { 
+        Write-Log -msg "Copy completed (Exit: $robocopyExitCode)"
+        Write-Log -msg "Removing read-only attributes..."
+        Get-ChildItem -Path $destinationPath -Recurse | ForEach-Object { $_.Attributes = $_.Attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly) } | Out-Null
+    } 
+    else { throw "Robocopy failed: $robocopyExitCode" }
+} catch { Write-Log -msg "Copy failed: $($_.Exception.Message)"; throw }
+
+try { if (Test-Path $isoFilePath) { Dismount-DiskImage -ImagePath $isoFilePath -EA Stop } }
+catch { Write-Log -msg "Dismount failed: $($_.Exception.Message)" }
 
 # Check files availability
 $installWimPath = Join-Path $destinationPath "sources\install.wim"

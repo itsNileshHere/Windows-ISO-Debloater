@@ -31,7 +31,7 @@ The script has been thoroughly tested with:
 Launch PowerShell as **Administrator** and execute:
 
 ```powershell
-irm https://itsnileshhere.github.io/Windows-ISO-Debloater/download.ps1 | iex
+irm "https://itsnileshhere.github.io/Windows-ISO-Debloater/download.ps1" | iex
 ```
 
 ### Option 2: Manual Download and Execution

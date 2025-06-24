@@ -71,7 +71,7 @@ function Get-Confirmation {
     $optionsText = if ($DefaultValue) { "Y/n" } else { "y/N" }
     do { 
         Write-Host "$Question" -ForegroundColor Cyan -NoNewline
-        if ($Description) { Write-Host " - $Description" -ForegroundColor Gray -NoNewline }
+        if ($Description) { Write-Host " - $Description" -ForegroundColor DarkGray -NoNewline }
         Write-Host " ($optionsText): " -ForegroundColor White -NoNewline
         $answer = Read-Host 
         if ([string]::IsNullOrWhiteSpace($answer)) {
@@ -533,9 +533,7 @@ if ($AppxRemove) {
     Write-Log -msg "Skipped Package Removal"
 }
 
-Write-Host "LANGCODE OUTSIDE IF BLOCK: $langCode"
 if ($CapabilitiesRemove) {
-    Write-Host "LANGCODE INSIDE IF BLOCK: $langCode"
     # Remove Capabilities and Windows Packages
     $capabilitiesAndPackagesTotal = $capabilitiesToRemove.Count + $windowsPackagesToRemove.Count
     Remove-Packages -Patterns $capabilitiesToRemove -SectionTitle "Removing Unnecessary Windows Features:" -PackageType "Capability" -MountPath $installMountDir -TotalCount $capabilitiesAndPackagesTotal -StatusColumn $statusColumn
@@ -568,7 +566,7 @@ Enable-Privilege SeTakeOwnershipPrivilege | Out-Null
 
 if ($OnedriveRemove) {
     # Remove OneDrive
-    Write-Host "`n[INFO] Removing OneDrive..." -ForegroundColor Cyan
+    Write-Host ("`n[INFO] Removing OneDrive...") -ForegroundColor Cyan
     Write-Log -msg "Defining OneDrive Setup file paths"
     $oneDriveSetupPath1 = Join-Path -Path $installMountDir -ChildPath 'Windows\System32\OneDriveSetup.exe'
     $oneDriveSetupPath2 = Join-Path -Path $installMountDir -ChildPath 'Windows\SysWOW64\OneDriveSetup.exe'
@@ -583,7 +581,7 @@ if ($OnedriveRemove) {
     # $oneDriveSetupPath4 | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
     Set-OwnAndRemove -Path $oneDriveShortcut | Out-Null
 
-    Write-Host "[OK] OneDrive Removed" -ForegroundColor Green
+    Write-Host ("[OK] OneDrive Removed") -ForegroundColor Green
     Write-Log -msg "OneDrive removed successfully"
 } else {
     Write-Log -msg "OneDrive removal skipped"
@@ -591,7 +589,7 @@ if ($OnedriveRemove) {
 
 if ($EDGERemove) {
     # Remove EDGE
-    Write-Host "`n[INFO] Removing EDGE..." -ForegroundColor Cyan
+    Write-Host ("`n[INFO] Removing EDGE...") -ForegroundColor Cyan
     Write-Log -msg "Removing EDGE"
     
     # Edge Patterns
@@ -691,14 +689,14 @@ if ($EDGERemove) {
         Get-ChildItem -Path "$installMountDir\Windows\SystemApps\Microsoft.MicrosoftEdge*" | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
     }
     
-    Write-Host "[OK] EDGE has been removed" -ForegroundColor Green
+    Write-Host ("[OK] EDGE has been removed") -ForegroundColor Green
     Write-Log -msg "Microsoft Edge removal completed"
 } else {
     Write-Log -msg "Edge removal cancelled"
 }
 
 # Registry Tweaks
-Write-Host "`n[INFO] Loading Registry..." -ForegroundColor Cyan
+Write-Host ("`n[INFO] Loading Registry...") -ForegroundColor Cyan
 Write-Log -msg "Loading registry"
 reg load HKLM\zCOMPONENTS "$installMountDir\Windows\System32\config\COMPONENTS" 2>&1 | Write-Log
 reg load HKLM\zDEFAULT "$installMountDir\Windows\System32\config\default" 2>&1 | Write-Log
@@ -731,10 +729,10 @@ try {
     }
 }
 catch {}
-Write-Host "[OK] Registry loaded" -ForegroundColor Green
+Write-Host ("[OK] Registry loaded") -ForegroundColor Green
 
 # Modify registry settings
-Write-Host "`n[INFO] Performing Registry Tweaks..." -ForegroundColor Cyan
+Write-Host ("`nPerforming Registry Tweaks...") -ForegroundColor Cyan
 
 # Disable Sponsored Apps
 Write-Host -NoNewline ("  Disabling Sponsored Apps".PadRight($statusColumn))
@@ -914,7 +912,7 @@ Write-Host "[DONE]" -ForegroundColor Green
 # Disable TPM CHeck
 
 if ($TPMBypass) {
-    Write-Host "`n[INFO] Disabling TPM Check" -ForegroundColor Cyan
+    Write-Host ("`n[INFO] Disabling TPM Check...") -ForegroundColor Cyan
     Write-Log -msg "Disabling TPM Check"
     reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
     reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
@@ -955,7 +953,7 @@ if ($TPMBypass) {
         reg unload HKLM\xSYSTEM 2>&1 | Write-Log
 
         Dismount-WindowsImage -Path $bootMountDir -Save 2>&1 | Write-Log
-        Write-Host "[OK] TPM Bypass Successful" -ForegroundColor Green
+        Write-Host ("[OK] TPM Bypass Successful") -ForegroundColor Green
         Write-Log -msg "Successfully modified boot.wim for TPM Bypass"
     }
     catch {
@@ -969,14 +967,14 @@ if ($TPMBypass) {
 # Bring back user folders
 if ($buildNumber -ge 22000) {
     if ($UserFoldersEnable) {
-        Write-Host "`n[INFO] Restoring User Folders" -ForegroundColor Cyan
+        Write-Host ("`n[INFO] Restoring User Folders...") -ForegroundColor Cyan
 
-        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /f
-        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{d3162b92-9365-467a-956b-92703aca08af}" /f
-        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{088e3905-0323-4b02-9826-5d99428e115f}" /f
-        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}" /f
-        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /f
-        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /f
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{d3162b92-9365-467a-956b-92703aca08af}" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{088e3905-0323-4b02-9826-5d99428e115f}" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /f 2>&1 | Write-Log
 
         reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{d3162b92-9365-467a-956b-92703aca08af}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
@@ -992,35 +990,35 @@ if ($buildNumber -ge 22000) {
         reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         
-        Write-Host "[OK] User Folders Restored" -ForegroundColor Green
+        Write-Host ("[OK] User Folders Restored") -ForegroundColor Green
         Write-Log -msg "User folders restored successfully"
     } else {
         Write-Log -msg "User folders restoration cancelled"
     }
 }
 
-Write-Host "`n[INFO] Unloading Registry..." -ForegroundColor Cyan
+Write-Host ("`n[INFO] Unloading Registry...") -ForegroundColor Cyan
 Write-Log -msg "Unloading registry"
 reg unload HKLM\zCOMPONENTS 2>&1 | Write-Log
 reg unload HKLM\zDEFAULT 2>&1 | Write-Log
 reg unload HKLM\zNTUSER 2>&1 | Write-Log
 reg unload HKLM\zSOFTWARE 2>&1 | Write-Log
 reg unload HKLM\zSYSTEM 2>&1 | Write-Log
-Write-Host "[OK] Success" -ForegroundColor Green
+Write-Host ("[OK] Success") -ForegroundColor Green
 
 # Unmounting and cleaning up the image
-Write-Host "`n[INFO] Cleaning up image..." -ForegroundColor Cyan
+Write-Host ("`n[INFO] Cleaning up image...") -ForegroundColor Cyan
 Write-Log -msg "Cleaning up image"
 Repair-WindowsImage -Path $installMountDir -StartComponentCleanup -ResetBase 2>&1 | Write-Log
 
-Write-Host "`n[INFO] Unmounting and Exporting image..." -ForegroundColor Cyan
+Write-Host ("`n[INFO] Unmounting and Exporting image...") -ForegroundColor Cyan
 Write-Log -msg "Unmounting image"
 try {
     Dismount-WindowsImage -Path $installMountDir -Save 2>&1 | Write-Log
     Write-Log -msg "Image unmounted successfully"
 }
 catch {
-    Write-Host "`nFailed to Unmount the Image. Check Logs for more info." -ForegroundColor Red
+    Write-Host "`n`nFailed to Unmount the Image. Check Logs for more info." -ForegroundColor Red
     Write-Host "Close all the Folders opened in the mountdir to complete the Script."
     Write-Host "Run the following code in Powershell(as admin) to unmount the broken image: "
     Write-Host "Dismount-WindowsImage -Path $installMountDir -Discard" -ForegroundColor Yellow
@@ -1034,12 +1032,12 @@ $tempWimPath = "$destinationPath\sources\install_temp.wim"
 $exportSuccess = $false
 
 if ($ESDConvert) {
-    Write-Host "`n[INFO] Compressing image to esd..." -ForegroundColor Cyan
+    Write-Host ("`n[INFO] Compressing image to esd...") -ForegroundColor Cyan
     try {        
         $process = Start-Process -FilePath "dism.exe" -ArgumentList "/Export-Image /SourceImageFile:`"$destinationPath\sources\install.wim`" /SourceIndex:$sourceIndex /DestinationImageFile:`"$tempWimPath`" /Compress:Recovery /CheckIntegrity" -Wait -NoNewWindow -PassThru
         if ($process.ExitCode -eq 0 -and (Test-Path $tempWimPath)) {
             $exportSuccess = $true
-            Write-Host "[OK] Compression completed" -ForegroundColor Green
+            Write-Host ("[OK] Compression completed") -ForegroundColor Green
             Write-Log -msg "Compression completed"
         } else {
             Write-Host "Compression failed with exit code: $($process.ExitCode)" -ForegroundColor Red
@@ -1051,12 +1049,12 @@ if ($ESDConvert) {
     }
 }
 else {
-    Write-Host "`n[INFO] Exporting image to wim..." -ForegroundColor Cyan
+    Write-Host ("`n[INFO] Exporting image to wim...") -ForegroundColor Cyan
     try {
         Export-WindowsImage -SourceImagePath "$destinationPath\sources\install.wim" -SourceIndex $sourceIndex -DestinationImagePath $tempWimPath -CompressionType Maximum -CheckIntegrity 2>&1 | Write-Log
         if (Test-Path $tempWimPath) {
             $exportSuccess = $true
-            Write-Host "[OK] Export completed successfully" -ForegroundColor Green
+            Write-Host ("[OK] Export completed successfully") -ForegroundColor Green
             Write-Log -msg "Export completed successfully"
         } else {
             Write-Host "Export failed - temp WIM not found" -ForegroundColor Red
@@ -1091,7 +1089,7 @@ if ($exportSuccess) {
 try {
     $wimPath = Get-WindowsImage -ImagePath "$destinationPath\sources\install.wim" -ErrorAction Stop
     if ($wimPath) {
-        Write-Host "[OK] WIM file validation successful: $($wimPath.Count) images found" -ForegroundColor Green
+        Write-Host ("[OK] WIM file validation successful: $($wimPath.Count) images found") -ForegroundColor Green
         Write-Log -msg "WIM validation passed: $($wimPath.Count) images found"
         
         # Force a filesystem sync to ensure all changes are written to disk
@@ -1202,7 +1200,7 @@ if (-not (Test-Path -Path $Oscdimg)) {
 }
 
 # Generate ISO
-Write-Host "`n[INFO] Generating ISO..." -ForegroundColor Cyan
+Write-Host ("`n[INFO] Generating ISO...") -ForegroundColor Cyan
 Write-Log -msg "Generating ISO using OSCDIMG"
 try {
     $etfsbootPath = "$destinationPath\boot\etfsboot.com"
@@ -1226,7 +1224,7 @@ try {
     $oscdimgProcess = Start-Process -FilePath "$Oscdimg" -ArgumentList $oscdimgArgs -PassThru -Wait -NoNewWindow
     
     if ($oscdimgProcess.ExitCode -eq 0) {
-        Write-Host "ISO creation successful" -ForegroundColor Green
+        Write-Host ("[OK] ISO creation successful") -ForegroundColor Green
         Write-Log -msg "ISO successfully created with exit code 0"
     } else {
         Write-Host "Warning: ISO creation finished with errors" -ForegroundColor Yellow

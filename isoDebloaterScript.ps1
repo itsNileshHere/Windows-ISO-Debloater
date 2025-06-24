@@ -8,7 +8,6 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     Write-Host "This script must be run as Administrator. Re-launching with elevated privileges..." -ForegroundColor Yellow
     $argss = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`""
     if (Get-Command wt -ErrorAction SilentlyContinue) { Start-Process wt "PowerShell $argss" -Verb RunAs } else { Start-Process PowerShell $argss -Verb RunAs }
-    Read-Host -Prompt "Press Enter to exit"
     Exit
 }
 Clear-Host
@@ -24,13 +23,14 @@ $asciiArt = @"
 Write-Host $asciiArt -ForegroundColor Cyan
 Start-Sleep -Milliseconds 1200
 Write-Host "Starting Windows ISO Debloater Script..." -ForegroundColor Green
-Start-Sleep -Milliseconds 1500
+Start-Sleep -Milliseconds 1200
 Write-Host "`n*Important Notes: " -ForegroundColor Yellow
-Write-Host "    1. There will be some prompts for the user." -ForegroundColor White
-Write-Host "    2. Ensure that you have administrative privileges to run this script." -ForegroundColor White
-Write-Host "    3. Review the script before execution to understand its actions." -ForegroundColor White
-Write-Host "    4. If you want to whitelist any package, just open the script and comment out the Packagename." -ForegroundColor White
-Start-Sleep -Milliseconds 1500
+Write-Host "  1. Some prompts will appear during the process."
+Write-Host "  2. Administrative privileges are required to run this script."
+Write-Host "  3. Review the script beforehand to understand its actions."
+Write-Host "  4. To whitelist a package, open the script and comment out the corresponding Packagename."
+Write-Host "  5. Select the ISO to proceed."
+Start-Sleep -Milliseconds 1200
 
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $PSDefaultParameterValues['*:Encoding'] = 'utf8'
@@ -43,39 +43,45 @@ $logFilePath = Join-Path -Path $scriptDirectory -ChildPath 'script_log.txt'
 # Log File
 function Write-Log {
     [CmdletBinding()]
-    param ( [Parameter(ValueFromPipeline=$true)] [object]$InputObj, [Parameter()] [string]$msg, [Parameter()] [switch]$Raw, [Parameter()] [string]$Sep = " || " )
+    param ([Parameter(ValueFromPipeline=$true)][object]$InputObj, [string]$msg, [switch]$Raw, [string]$Sep = " || ")
     process {
         $content = if ($msg) { $msg } elseif ($null -ne $InputObj) { if ($InputObj -is [string]) { $InputObj } else { $InputObj | Out-String } } else { return }
         if (-not $Raw -and $content.Trim()) {
-            $lines = @($content -split '\n' | Where-Object { $_.Trim() })   
+            $lines = @($content -split '\n' | Where-Object { $_.Trim() })
             if ($lines.Count -gt 1) {
-                $processedLines = @()  
+                $processedLines = @()
                 foreach ($line in $lines) {
                     $trimmed = $line.Trim()
-                    if ($trimmed -match '^At\s+(.+)') { 
-                        $processedLines += "At $($matches[1])"
-                    }
-                    elseif ($trimmed -match '^\s*\+\s*(.+)') { 
-                        $processedLines += ("+ " + ($matches[1] -replace '\s{2,}', ' '))
-                    }
-                    elseif ($trimmed -match '^\s*\+?\s*(\w+\w+)\s*:\s*(.+)') { 
-                        $processedLines += "$($matches[1]): $($matches[2])"
-                    }
-                    elseif ($trimmed -notmatch '^-{4,}' -and $trimmed) {
-                        $processedLines += ($trimmed -replace '\s{2,}', ' ')
-                    }
+                    if ($trimmed -match '^At\s+(.+)') { $processedLines += "At $($matches[1])" }
+                    elseif ($trimmed -match '^\s*\+\s*(.+)') { $processedLines += ("+ " + ($matches[1] -replace '\s{2,}', ' ')) }
+                    elseif ($trimmed -match '^\s*\+?\s*(\w+\w+)\s*:\s*(.+)') { $processedLines += "$($matches[1]): $($matches[2])" }
+                    elseif ($trimmed -notmatch '^-{4,}' -and $trimmed) { $processedLines += ($trimmed -replace '\s{2,}', ' ') }
                 }
                 $content = $processedLines -join $Sep
-            }
-            else {
-                $content = ($content.Trim() -replace '\s{2,}', ' ')
-            }
+            } else { $content = ($content.Trim() -replace '\s{2,}', ' ') }
         }
-        
-        if ($content -and $content.Trim()) {
-            Add-Content -Path "$logFilePath" -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $($content.Trim())"
-        }
+        if ($content -and $content.Trim()) { Add-Content -Path "$logFilePath" -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $($content.Trim())" }
     }
+}
+
+# Confirmation Function
+function Get-Confirmation { 
+    param([string]$Question, [bool]$DefaultValue = $true, [string]$Description = "") 
+    $defaultText = if ($DefaultValue) { "Y" } else { "N" }
+    $optionsText = if ($DefaultValue) { "Y/n" } else { "y/N" }
+    do { 
+        Write-Host "$Question" -ForegroundColor Cyan -NoNewline
+        if ($Description) { Write-Host " - $Description" -ForegroundColor Gray -NoNewline }
+        Write-Host " ($optionsText): " -ForegroundColor White -NoNewline
+        $answer = Read-Host 
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            Write-Host "Using default: $defaultText" -ForegroundColor Yellow
+            return $DefaultValue
+        }
+        $answer = $answer.ToUpper()
+        if ($answer -eq 'Y' -or $answer -eq 'N') { return $answer -eq 'Y' }
+        Write-Host "Invalid input. Enter 'Y' for Yes, 'N' for No, or Enter for default ($defaultText)." -ForegroundColor Yellow 
+    } while ($true) 
 }
 
 # Cleanup Function
@@ -100,11 +106,8 @@ function Set-OwnAndRemove {
             $Acl.SetOwner([System.Security.Principal.NTAccount]"Administrators")
             $CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
             
-            if ($IsFolder) {
-                $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
-            } else {
-                $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", "Allow")
-            }
+            if ($IsFolder) { $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow") }
+            else { $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", "Allow") }
             
             $Acl.SetAccessRule($AccessRule)
             Set-Acl -Path $FullPath -AclObject $Acl
@@ -150,15 +153,54 @@ function Set-OwnAndRemove {
 }
 
 # Image Info Function
-function Get-WimInfo {
-    param (
-        [Parameter(Mandatory = $true)]
-        [string]$MountPath
-    )
-    $out = dism /Image:$MountPath /Get-Intl | Out-String
-    [PSCustomObject]@{
-        BuildNumber = if ($out -match "Image Version: \d+\.\d+\.(\d+)\.\d+") { $matches[1] } else { $null }
-        Language    = if ($out -match "Default system UI language : ([a-z]{2}-[A-Z]{2})") { $matches[1] } else { $null }
+function Get-WimDetails {
+    param ( [Parameter(Mandatory = $true)][string]$MountPath )
+    try {
+        $out = dism /Image:$MountPath /Get-Intl /English | Out-String
+        Write-Log -msg "DISM Output for Get-WimDetails:`n$out"
+        $buildMatch = [regex]::Match($out, "Image Version: \d+\.\d+\.(\d+)\.\d+")
+        $langMatch = [regex]::Match($out, "(?i)Default\s+system\s+UI\s+language\s*:\s*([a-z]{2}-[A-Z]{2})")
+        [PSCustomObject]@{
+            BuildNumber = if ($buildMatch.Success) { $buildMatch.Groups[1].Value } else { $null }
+            Language = if ($langMatch.Success) { $langMatch.Groups[1].Value } else { $null }
+        }
+    }
+    catch {
+        Write-Host "Failed to get WIM info: $($_.Exception.Message)" -ForegroundColor Red
+        return $null
+    }
+}
+
+# Get Image Index Function
+function Get-ImageIndex {
+    param ( [Parameter(Mandatory = $true)][string]$ImagePath )
+    try {
+        $out = & dism.exe /get-wiminfo /wimfile:$ImagePath /english 2>$null
+        Write-Log -msg "DISM Output for Get-ImageIndex:`n$out"
+        if ($LASTEXITCODE -ne 0) { throw "DISM failed to read image file: $ImagePath" }
+        $images = @()
+        $indexPattern = "Index\s*:\s*(\d+)"
+        $namePattern = "Name\s*:\s*(.+)"
+        for ($i = 0; $i -lt $out.Count; $i++) {
+            if ($out[$i] -match $indexPattern) {
+                $index = $matches[1]
+                for ($j = $i + 1; $j -lt [Math]::Min($i + 5, $out.Count); $j++) {
+                    if ($out[$j] -match $namePattern) {
+                        $name = $matches[1].Trim()
+                        $images += [PSCustomObject]@{
+                            Index = [int]$index
+                            ImageName = $name
+                        }
+                        break
+                    }
+                }
+            }
+        }
+        return $images
+    }
+    catch {
+        Write-Log -msg "Failed to get image information: $($_.Exception.Message)"
+        return $null
     }
 }
 
@@ -177,8 +219,6 @@ if (-not (Test-Path $autounattendXmlPath)) {
     finally { $ProgressPreference = 'Continue' }
 }
 
-Write-Host
-
 # Mount ISO Dialog
 Add-Type -AssemblyName System.Windows.Forms
 $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
@@ -188,7 +228,8 @@ $openFileDialog.Title = "Select Windows ISO File"
 
 if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     $isoFilePath = $openFileDialog.FileName
-    Write-Host "Selected ISO file: $isoFilePath"
+    Write-Host "`nSelected ISO file: " -NoNewline -ForegroundColor Cyan
+    Write-Host "$isoFilePath"
     Write-Log -msg "ISO Path: $isoFilePath"
     $mountResult = Mount-DiskImage -ImagePath "$isoFilePath" -PassThru
     if ($mountResult) {
@@ -216,8 +257,7 @@ $destinationPath = "$env:SystemDrive\WIDTemp\winlite"   # Destination Path
 $installMountDir = "$env:SystemDrive\WIDTemp\mountdir\installWIM"   # Mount Directory
 
 # Copy Files
-Write-Host "`nCopying files from $sourceDrive to $destinationPath"
-Write-Log -msg "Copying files from $sourceDrive to $destinationPath"
+Write-Host "`nCopying files from " -NoNewline; Write-Host "`"$sourceDrive`"" -ForegroundColor Yellow -NoNewline; Write-Host " to " -NoNewline; Write-Host "`"$destinationPath`"" -ForegroundColor Yellow; Write-Log -msg "Copying files from $sourceDrive to $destinationPath"
 try {
     if (-not (Test-Path $destinationPath)) { New-Item -ItemType Directory -Path $destinationPath -Force -EA Stop | Out-Null }
     Write-Log -msg "Starting file copy operation..."
@@ -227,6 +267,7 @@ try {
     $robocopyExitCode = $LASTEXITCODE
     $robocopyOutput | Write-Log
     if ($robocopyExitCode -le 7) { 
+        Write-Host "Copy completed successfully." -ForegroundColor Green
         Write-Log -msg "Copy completed (Exit: $robocopyExitCode)"
         Write-Log -msg "Removing read-only attributes..."
         Get-ChildItem -Path $destinationPath -Recurse | ForEach-Object { $_.Attributes = $_.Attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly) } | Out-Null
@@ -234,7 +275,7 @@ try {
     else { throw "Robocopy failed: $robocopyExitCode" }
 } catch { Write-Log -msg "Copy failed: $($_.Exception.Message)"; throw }
 
-try { if (Test-Path $isoFilePath) { Dismount-DiskImage -ImagePath $isoFilePath -EA Stop } }
+try { if (Test-Path $isoFilePath) { Dismount-DiskImage -ImagePath $isoFilePath -EA Stop | Out-Null} }
 catch { Write-Log -msg "Dismount failed: $($_.Exception.Message)" }
 
 # Check files availability
@@ -245,16 +286,20 @@ New-Item -ItemType Directory -Path $installMountDir 2>&1 | Write-Log
 # Handling install.wim and install.esd
 if (-not (Test-Path $installWimPath)) {
     Write-Host "`ninstall.wim not found. Searching for install.esd..."
-    Start-Sleep -Milliseconds 500
     if (Test-Path $installEsdPath) {
-        Write-Host "`ninstall.esd found at $installEsdPath."
+        Write-Host "`ninstall.esd found at " -NoNewline -ForegroundColor Cyan; Write-Host "$installEsdPath"
         Write-Log -msg "install.esd found. Converting..."
-        Start-Sleep -Milliseconds 500
+        Write-Host "Details for image: " -NoNewline -ForegroundColor Cyan; Write-Host "$installEsdPath"
         try {
-            $wimInfo = Get-WindowsImage -ImagePath $installEsdPath
-            Write-Host
-            foreach ($image in $wimInfo) {
-                "$($image.ImageIndex). $($image.ImageName)"
+            $esdInfo = Get-ImageIndex -ImagePath $installEsdPath
+            if (-not $esdInfo) { 
+                Write-Host "Error: Could not retrieve image info from WIM file" -ForegroundColor Red
+                Remove-TempFiles
+                Read-Host -Prompt "Press Enter to exit"
+                Exit
+            }
+            foreach ($image in $esdInfo) {
+                Write-Host "$($image.Index). $($image.ImageName)"
             }
             Write-Host
             $sourceIndex = Read-Host -Prompt "Enter the index to convert and mount"
@@ -279,17 +324,22 @@ if (-not (Test-Path $installWimPath)) {
     }
 }
 else {
-    Write-Host "`nDetails for image: $installWimPath"
+    Write-Host "`nDetails for image: " -NoNewline -ForegroundColor Cyan; Write-Host "$installWimPath"
     Write-Log -msg "Getting image info"
     try {
-        $wimInfo = Get-WindowsImage -ImagePath $installWimPath
+        $wimInfo = Get-ImageIndex -ImagePath $installWimPath
+        if (-not $wimInfo) { 
+            Write-Host "Error: Could not retrieve image info from WIM file" -ForegroundColor Red
+            Remove-TempFiles
+            Read-Host -Prompt "Press Enter to exit"
+            Exit
+        }
         foreach ($image in $wimInfo) {
-            "$($image.ImageIndex). $($image.ImageName)"
+            Write-Host "$($image.Index). $($image.ImageName)"
         }
         Write-Host
         $sourceIndex = Read-Host -Prompt "Enter the index to mount"
         Write-Log -msg "Mounting image: $sourceIndex"
-        
         Mount-WindowsImage -ImagePath $installWimPath -Index $sourceIndex -Path $installMountDir 2>&1 | Write-Log
     }
     catch {
@@ -300,6 +350,7 @@ else {
     }
 }
 
+# Check if wim-mount was successful
 if (-not (Test-Path "$installMountDir\Windows")) {
     Write-Host "Error while mounting image. Try again." -ForegroundColor Red
     Write-Log -msg "Mounted image not found. Exiting"
@@ -309,9 +360,25 @@ if (-not (Test-Path "$installMountDir\Windows")) {
 }
 
 # Resolve Image Info
-$WimInfo = Get-WimInfo -MountPath $installMountDir
-$langCode = $WimInfo.Language
-$buildNumber = $WimInfo.BuildNumber
+$WimDetails = Get-WimDetails -MountPath $installMountDir
+if (-not $WimDetails -or -not $WimDetails.BuildNumber -or -not $WimDetails.Language) {
+    Write-Host "Error: Could not retrieve WIM information from mounted path" -ForegroundColor Red
+    Remove-TempFiles
+    Read-Host -Prompt "Press Enter to exit"
+    Exit
+}
+$langCode = $WimDetails.Language; Write-Log -msg "Detected Language: $langCode"
+$buildNumber = $WimDetails.BuildNumber; Write-Log -msg "Detected Build Number: $buildNumber"
+
+
+Write-Host
+$AppxRemove = Get-Confirmation -Question "Remove unnecessary packages?" -DefaultValue $true -Description "Recommended: Removes bloatware apps"
+$CapabilitiesRemove = Get-Confirmation -Question "Remove unnecessary features?" -DefaultValue $true -Description "Recommended: Removes optional Windows features"
+$OnedriveRemove = Get-Confirmation -Question "Remove OneDrive?" -DefaultValue $true -Description "Optional: Completely removes OneDrive"
+$EDGERemove = Get-Confirmation -Question "Remove Microsoft Edge?" -DefaultValue $true -Description "Optional: Removes Edge browser"
+$TPMBypass = Get-Confirmation -Question "Bypass TPM check?" -DefaultValue $false -Description "Only if needed for older hardware"
+$UserFoldersEnable = Get-Confirmation -Question "Enable user folders?" -DefaultValue $true -Description "Recommended: Enables Desktop, Documents, etc."
+$ESDConvert = Get-Confirmation -Question "Compress the ISO?" -DefaultValue $false -Description "Recommended but slow: Reduces ISO file size"
 
 # Comment out the package don't wanna remove
 $appxPatternsToRemove = @(
@@ -386,88 +453,108 @@ $windowsPackagesToRemove = @(
     "Microsoft-Windows-StepsRecorder-Package*"
 )
 
-# Remove Packages
-Write-Host "`nRemoving provisioned Packages..." -ForegroundColor Cyan
-Write-Log -msg "Removing provisioned packages"
-Start-Sleep -Milliseconds 1500
-
-# Remove AppX Packages
-foreach ($appxPattern in $appxPatternsToRemove) {
-    try {
-        Write-Host $appxPattern.TrimEnd('*')
-        $appxProvisionedPackages = Get-ProvisionedAppxPackage -Path $installMountDir | Where-Object { $_.PackageName -like $appxPattern }
-        foreach ($appxPackage in $appxProvisionedPackages) {
-            $appxPackageName = $appxPackage.PackageName
-            try {
-                Remove-ProvisionedAppxPackage -Path $installMountDir -PackageName $appxPackageName 2>&1 | Write-Log
-            }
-            catch {
-                Write-Log -msg "Removing AppX package $appxPackageName failed: $_"
-            }
+function Remove-Packages {
+    param( [string[]]$Patterns, [string]$SectionTitle, [string]$PackageType, [string]$MountPath, [int]$StartIndex = 1, [int]$TotalCount, [int]$StatusColumn )
+    
+    # Package configurations
+    $config = @{
+        'AppX' = @{
+            GetCommand = { Get-ProvisionedAppxPackage -Path $MountPath }
+            FilterProperty = 'PackageName'
+            RemoveCommand = { param($item) Remove-ProvisionedAppxPackage -Path $MountPath -PackageName $item.PackageName }
+            LogPrefix = 'AppX package'
+        }
+        'Capability' = @{
+            GetCommand = { Get-WindowsCapability -Path $MountPath }
+            FilterProperty = 'Name'
+            RemoveCommand = { param($item) Remove-WindowsCapability -Path $MountPath -Name $item.Name }
+            LogPrefix = 'capability'
+        }
+        'WindowsPackage' = @{
+            GetCommand = { Get-WindowsPackage -Path $MountPath }
+            FilterProperty = 'PackageName'
+            RemoveCommand = { param($item) Remove-WindowsPackage -Path $MountPath -PackageName $item.PackageName }
+            LogPrefix = 'Windows package'
         }
     }
-    catch {
-        Write-Log -msg "Failed to remove provisioned AppX package matching '$appxPattern': $_"
+    
+    if ($SectionTitle) {
+        Write-Host "`n$SectionTitle" -ForegroundColor Cyan
+        Write-Log -msg $SectionTitle
+    }
+    
+    # Validate Package Type
+    $cfg = $config[$PackageType]
+    $filterProp = $cfg.FilterProperty
+    
+    for ($i = 0; $i -lt $Patterns.Count; $i++) {
+        $pattern = $Patterns[$i]
+        $displayName = $pattern.TrimEnd('*')
+        $counter = "[{0}/{1}]" -f ($StartIndex + $i), $TotalCount
+        $initialOutput = "  $counter $displayName"
+
+        Write-Host $initialOutput -NoNewline    # Display initial output
+        try {
+            $items = & $cfg.GetCommand | Where-Object { $_.$filterProp -like $pattern }
+            $itemsRemoved = 0
+            foreach ($item in $items) {
+                try {
+                    & $cfg.RemoveCommand $item 2>&1 | Write-Log
+                    $itemsRemoved++
+                }
+                catch {
+                    $itemName = $item.$filterProp
+                    Write-Log -msg "Removing $($cfg.LogPrefix) $itemName failed: $_"
+                }
+            }
+            
+            # Show status
+            $padding = $StatusColumn - $initialOutput.Length
+            $spaces = ' ' * $padding
+            if ($itemsRemoved -gt 0) { Write-Host "$spaces[REMOVED]" -ForegroundColor Green }
+            else { Write-Host "$spaces[NOT FOUND]" -ForegroundColor Yellow }
+        }
+        catch {
+            Write-Log -msg "Failed to remove $PackageType matching '$pattern': $_"
+            $padding = $StatusColumn - $initialOutput.Length
+            Write-Host "$(' ' * $padding)[ERROR]" -ForegroundColor Red
+        }
     }
 }
 
-Write-Host "`nRemoving Unnecessary Windows Capabilities..." -ForegroundColor Cyan
-Write-Log -msg "Removing unnecessary Windows capabilities"
-Start-Sleep -Milliseconds 1500
+$allPatterns = $appxPatternsToRemove + $capabilitiesToRemove + $windowsPackagesToRemove
+$maxLength = ($allPatterns | ForEach-Object { $_.TrimEnd('*').Length } | Measure-Object -Maximum).Maximum
+$statusColumn = $maxLength + 18
 
-# Remove Windows Capabilities
-foreach ($capabilityPattern in $capabilitiesToRemove) {
-    try {
-        Write-Host $capabilityPattern.TrimEnd('*')
-        $windowsCapabilities = Get-WindowsCapability -Path $installMountDir | Where-Object { $_.Name -like $capabilityPattern }
-        foreach ($capability in $windowsCapabilities) {
-            $capabilityName = $capability.Name
-            try {
-                Remove-WindowsCapability -Path $installMountDir -Name $capabilityName 2>&1 | Write-Log
-            }
-            catch {
-                Write-Log -msg "Removing capability $capabilityName failed: $_"
-            }
-        }
-    }
-    catch {
-        Write-Log -msg "Failed to remove capability matching '$capabilityPattern': $_"
-    }
+if ($AppxRemove) {
+    # Remove AppX Packages
+    Remove-Packages -Patterns $appxPatternsToRemove -SectionTitle "Removing provisioned Packages:" -PackageType "AppX" -MountPath $installMountDir -TotalCount $appxPatternsToRemove.Count -StatusColumn $statusColumn
+} else {
+    Write-Log -msg "Skipped Package Removal"
 }
 
-# Remove Windows Packages
-foreach ($windowsPackagePattern in $windowsPackagesToRemove) {
-    try {
-        Write-Host $windowsPackagePattern.TrimEnd('*')
-        $windowsPackages = Get-WindowsPackage -Path $installMountDir | Where-Object { $_.PackageName -like $windowsPackagePattern }
-        foreach ($windowsPackage in $windowsPackages) {
-            $windowsPackageName = $windowsPackage.PackageName
-            try {
-                Remove-WindowsPackage -Path $installMountDir -PackageName $windowsPackageName 2>&1 | Write-Log
-            }
-            catch {
-                Write-Log -msg "Removing Windows package $windowsPackageName failed: $_"
-            }
-        }
-    }
-    catch {
-        Write-Log -msg "Failed to remove Windows package matching '$windowsPackagePattern': $_"
-    }
+Write-Host "LANGCODE OUTSIDE IF BLOCK: $langCode"
+if ($CapabilitiesRemove) {
+    Write-Host "LANGCODE INSIDE IF BLOCK: $langCode"
+    # Remove Capabilities and Windows Packages
+    $capabilitiesAndPackagesTotal = $capabilitiesToRemove.Count + $windowsPackagesToRemove.Count
+    Remove-Packages -Patterns $capabilitiesToRemove -SectionTitle "Removing Unnecessary Windows Features:" -PackageType "Capability" -MountPath $installMountDir -TotalCount $capabilitiesAndPackagesTotal -StatusColumn $statusColumn
+    Remove-Packages -Patterns $windowsPackagesToRemove -SectionTitle "" -PackageType "WindowsPackage" -MountPath $installMountDir -StartIndex ($capabilitiesToRemove.Count + 1) -TotalCount $capabilitiesAndPackagesTotal -StatusColumn $statusColumn
+} else {
+    Write-Log -msg "Skipped Features Removal"
 }
 
 # # Remove Recall (Have conflict with Explorer)
 # Write-Host "`nRemoving Recall..."
 # Write-Log -msg "Removing Recall"
-# Start-Sleep -Milliseconds 1500
 # dism /image:$installMountDir /Disable-Feature /FeatureName:'Recall' /Remove 2>&1 | Write-Log
 # Write-Host "Done"
 
-# Remove OutlookPWA
-Write-Host "`nRemoving Outlook..." -ForegroundColor Cyan
-Write-Log -msg "Removing OutlookPWA"
-Start-Sleep -Milliseconds 1000
+# # Remove OutlookPWA
+# Write-Host "`nRemoving Outlook..." -ForegroundColor Cyan
+# Write-Log -msg "Removing OutlookPWA"
 # Get-ChildItem "$installMountDir\Windows\WinSxS\amd64_microsoft-windows-outlookpwa*" -Directory | ForEach-Object { Set-OwnAndRemove -Path $_.FullName } 2>&1 | Write-Log
-Write-Host "Done" -ForegroundColor Green
+# Write-Host "Done" -ForegroundColor Green
 
 # Setting Permissions
 function Enable-Privilege {
@@ -477,159 +564,147 @@ function Enable-Privilege {
 '@
     (Add-Type $def -PassThru -EA SilentlyContinue)[0]::EnablePrivilege((Get-Process -id $ProcessId).Handle, $Privilege, $Disable)
 }
-Enable-Privilege SeTakeOwnershipPrivilege 2>&1 | Write-Log
+Enable-Privilege SeTakeOwnershipPrivilege | Out-Null
 
-# Remove OneDrive
-Start-Sleep -Milliseconds 1000
-Write-Host "`nRemoving OneDrive..." -ForegroundColor Cyan
-Start-Sleep -Milliseconds 1000
-Write-Log -msg "Defining OneDrive Setup file paths"
-$oneDriveSetupPath1 = Join-Path -Path $installMountDir -ChildPath 'Windows\System32\OneDriveSetup.exe'
-$oneDriveSetupPath2 = Join-Path -Path $installMountDir -ChildPath 'Windows\SysWOW64\OneDriveSetup.exe'
-# $oneDriveSetupPath3 = (Join-Path -Path $installMountDir -ChildPath 'Windows\WinSxS\*microsoft-windows-onedrive-setup*\OneDriveSetup.exe' | Get-Item -ErrorAction SilentlyContinue).FullName
-# $oneDriveSetupPath4 = (Get-ChildItem "$installMountDir\Windows\WinSxS\amd64_microsoft-windows-onedrive-setup*" -Directory).FullName
-$oneDriveShortcut = Join-Path -Path $installMountDir -ChildPath 'Users\Default\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneDrive.lnk'
+if ($OnedriveRemove) {
+    # Remove OneDrive
+    Write-Host "`n[INFO] Removing OneDrive..." -ForegroundColor Cyan
+    Write-Log -msg "Defining OneDrive Setup file paths"
+    $oneDriveSetupPath1 = Join-Path -Path $installMountDir -ChildPath 'Windows\System32\OneDriveSetup.exe'
+    $oneDriveSetupPath2 = Join-Path -Path $installMountDir -ChildPath 'Windows\SysWOW64\OneDriveSetup.exe'
+    # $oneDriveSetupPath3 = (Join-Path -Path $installMountDir -ChildPath 'Windows\WinSxS\*microsoft-windows-onedrive-setup*\OneDriveSetup.exe' | Get-Item -ErrorAction SilentlyContinue).FullName
+    # $oneDriveSetupPath4 = (Get-ChildItem "$installMountDir\Windows\WinSxS\amd64_microsoft-windows-onedrive-setup*" -Directory).FullName
+    $oneDriveShortcut = Join-Path -Path $installMountDir -ChildPath 'Users\Default\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneDrive.lnk'
 
-Write-Log -msg "Removing OneDrive"
-Set-OwnAndRemove -Path $oneDriveSetupPath1
-Set-OwnAndRemove -Path $oneDriveSetupPath2
-# $oneDriveSetupPath3 | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
-# $oneDriveSetupPath4 | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
-Set-OwnAndRemove -Path $oneDriveShortcut
+    Write-Log -msg "Removing OneDrive"
+    Set-OwnAndRemove -Path $oneDriveSetupPath1 | Out-Null
+    Set-OwnAndRemove -Path $oneDriveSetupPath2 | Out-Null
+    # $oneDriveSetupPath3 | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
+    # $oneDriveSetupPath4 | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
+    Set-OwnAndRemove -Path $oneDriveShortcut | Out-Null
 
-Write-Host "OneDrive Removed" -ForegroundColor Green
+    Write-Host "[OK] OneDrive Removed" -ForegroundColor Green
+    Write-Log -msg "OneDrive removed successfully"
+} else {
+    Write-Log -msg "OneDrive removal skipped"
+}
 
-# Remove EDGE
-Start-Sleep -Milliseconds 1500
-Write-Host
-do {
-    $EdgeConfirm = Read-Host "Remove Microsoft Edge? (Y/N)"
-    $EdgeConfirm = $EdgeConfirm.ToUpper()
-
-    if ($EdgeConfirm -eq 'Y') {
-        Write-Host "Removing EDGE..." -ForegroundColor Cyan
-        Write-Log -msg "Removing EDGE"
+if ($EDGERemove) {
+    # Remove EDGE
+    Write-Host "`n[INFO] Removing EDGE..." -ForegroundColor Cyan
+    Write-Log -msg "Removing EDGE"
     
-        # Edge Patterns
-        $EDGEpatterns = @(
-            "Microsoft.MicrosoftEdge.Stable*",
-            "Microsoft.MicrosoftEdgeDevToolsClient*", 
-            "Microsoft.Win32WebViewHost*",
-            "MicrosoftWindows.Client.WebExperience*"
-        )
+    # Edge Patterns
+    $EDGEpatterns = @(
+        "Microsoft.MicrosoftEdge.Stable*",
+        "Microsoft.MicrosoftEdgeDevToolsClient*", 
+        "Microsoft.Win32WebViewHost*",
+        "MicrosoftWindows.Client.WebExperience*"
+    )
 
-        # Remove Edge Packages
-        foreach ($pattern in $EDGEpatterns) {
-            $matchedPackages = Get-ProvisionedAppxPackage -Path $installMountDir | 
-            Where-Object { $_.PackageName -like $pattern }
-    
-            foreach ($package in $matchedPackages) {
-                Remove-ProvisionedAppxPackage -Path $installMountDir -PackageName $package.PackageName 2>&1 | Write-Log
-            }
+    # Remove Edge Packages
+    foreach ($pattern in $EDGEpatterns) {
+        $matchedPackages = Get-ProvisionedAppxPackage -Path $installMountDir | 
+        Where-Object { $_.PackageName -like $pattern }
+        foreach ($package in $matchedPackages) {
+            Remove-ProvisionedAppxPackage -Path $installMountDir -PackageName $package.PackageName 2>&1 | Write-Log
         }
+    }
 
-        # Modifying reg keys
-        try {
-            reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
-            reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
-            reg load HKLM\zNTUSER "$installMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
-            reg load HKLM\zDEFAULT "$installMountDir\Windows\System32\config\default" 2>&1 | Write-Log
-
-            # Registry operations
-            reg delete "HKLM\zSOFTWARE\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge" /f 2>&1 | Write-Log
-            reg delete "HKLM\zDEFAULT\Software\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
-            reg delete "HKLM\zNTUSER\Software\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSOFTWARE\Microsoft\Active Setup\Installed Components\{9459C573-B17A-45AE-9F64-1857B5D58CEE}" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSOFTWARE\WOW6432Node\Microsoft\Edge" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSOFTWARE\WOW6432Node\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSYSTEM\CurrentControlSet\Services\edgeupdate" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSYSTEM\ControlSet001\Services\edgeupdate" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSYSTEM\CurrentControlSet\Services\edgeupdatem" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSYSTEM\ControlSet001\Services\edgeupdatem" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge" /f 2>&1 | Write-Log
-            reg delete "HKLM\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\MicrosoftEdge\Main" /v "AllowPrelaunch" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Policies\Microsoft\MicrosoftEdge\Main" /v "AllowPrelaunch" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            reg add "HKLM\zNTUSER\Software\Microsoft\MicrosoftEdge\Main" /v "AllowPrelaunch" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            reg add "HKLM\zNTUSER\Software\Policies\Microsoft\MicrosoftEdge\Main" /v "AllowPrelaunch" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Policies\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            reg add "HKLM\zNTUSER\Software\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            reg add "HKLM\zNTUSER\Software\Policies\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Policies\Microsoft\EdgeUpdate" /v "UpdateDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+    # Modifying reg keys
+    try {
+        reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
+        reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
+        reg load HKLM\zNTUSER "$installMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
+        reg load HKLM\zDEFAULT "$installMountDir\Windows\System32\config\default" 2>&1 | Write-Log
+          
+        # Registry operations
+        reg delete "HKLM\zSOFTWARE\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge" /f 2>&1 | Write-Log
+        reg delete "HKLM\zDEFAULT\Software\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
+        reg delete "HKLM\zNTUSER\Software\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSOFTWARE\Microsoft\Active Setup\Installed Components\{9459C573-B17A-45AE-9F64-1857B5D58CEE}" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSOFTWARE\WOW6432Node\Microsoft\Edge" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSOFTWARE\WOW6432Node\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSYSTEM\CurrentControlSet\Services\edgeupdate" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSYSTEM\ControlSet001\Services\edgeupdate" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSYSTEM\CurrentControlSet\Services\edgeupdatem" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSYSTEM\ControlSet001\Services\edgeupdatem" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge" /f 2>&1 | Write-Log
+        reg delete "HKLM\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\MicrosoftEdge\Main" /v "AllowPrelaunch" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\MicrosoftEdge\Main" /v "AllowPrelaunch" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Microsoft\MicrosoftEdge\Main" /v "AllowPrelaunch" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Policies\Microsoft\MicrosoftEdge\Main" /v "AllowPrelaunch" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Policies\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\EdgeUpdate" /v "UpdateDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         
-            # Disable Edge updates and installation
-            $registryKeys = @(
-                "HKLM\zSOFTWARE\Microsoft\EdgeUpdate",
-                "HKLM\zSOFTWARE\Policies\Microsoft\EdgeUpdate",
-                "HKLM\zSOFTWARE\WOW6432Node\Microsoft\EdgeUpdate",
-                "HKLM\zNTUSER\Software\Microsoft\EdgeUpdate",
-                "HKLM\zNTUSER\Software\Policies\Microsoft\EdgeUpdate"
-            )
-            foreach ($key in $registryKeys) {
-                reg add "$key" /v "DoNotUpdateToEdgeWithChromium" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-                reg add "$key" /v "UpdaterExperimentationAndConfigurationServiceControl" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-                reg add "$key" /v "InstallDefault" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            }
+        # Disable Edge updates and installation
+        $registryKeys = @(
+            "HKLM\zSOFTWARE\Microsoft\EdgeUpdate",
+            "HKLM\zSOFTWARE\Policies\Microsoft\EdgeUpdate",
+            "HKLM\zSOFTWARE\WOW6432Node\Microsoft\EdgeUpdate",
+            "HKLM\zNTUSER\Software\Microsoft\EdgeUpdate",
+            "HKLM\zNTUSER\Software\Policies\Microsoft\EdgeUpdate"
+        )
+        foreach ($key in $registryKeys) {
+            reg add "$key" /v "DoNotUpdateToEdgeWithChromium" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            reg add "$key" /v "UpdaterExperimentationAndConfigurationServiceControl" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            reg add "$key" /v "InstallDefault" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
         }
-        catch {
-            Write-Log -msg "Error modifying registry: $_"
-        }
-        finally {
-            # Always unload registry hives regardless of errors
-            reg unload HKLM\zSOFTWARE 2>&1 | Write-Log
-            reg unload HKLM\zSYSTEM 2>&1 | Write-Log
-            reg unload HKLM\zNTUSER 2>&1 | Write-Log
-            reg unload HKLM\zDEFAULT 2>&1 | Write-Log
-        }
+    }
+    catch {
+        Write-Log -msg "Error modifying registry: $_"
+    }
+    finally {
+        # Always unload registry hives regardless of errors
+        reg unload HKLM\zSOFTWARE 2>&1 | Write-Log
+        reg unload HKLM\zSYSTEM 2>&1 | Write-Log
+        reg unload HKLM\zNTUSER 2>&1 | Write-Log
+        reg unload HKLM\zDEFAULT 2>&1 | Write-Log
+    }
 
-        # Remove EDGE files
-        Remove-Item -Path "$installMountDir\Program Files\Microsoft\Edge" -Recurse -Force 2>&1 | Write-Log
-        Remove-Item -Path "$installMountDir\Program Files\Microsoft\EdgeCore" -Recurse -Force 2>&1 | Write-Log
-        Remove-Item -Path "$installMountDir\Program Files\Microsoft\EdgeUpdate" -Recurse -Force 2>&1 | Write-Log
-        Remove-Item -Path "$installMountDir\Program Files\Microsoft\EdgeWebView" -Recurse -Force 2>&1 | Write-Log
-        Remove-Item -Path "$installMountDir\Program Files (x86)\Microsoft\Edge" -Recurse -Force 2>&1 | Write-Log
-        Remove-Item -Path "$installMountDir\Program Files (x86)\Microsoft\EdgeCore" -Recurse -Force 2>&1 | Write-Log
-        Remove-Item -Path "$installMountDir\Program Files (x86)\Microsoft\EdgeUpdate" -Recurse -Force 2>&1 | Write-Log
-        Remove-Item -Path "$installMountDir\Program Files (x86)\Microsoft\EdgeWebView" -Recurse -Force 2>&1 | Write-Log
-        Remove-Item -Path "$installMountDir\ProgramData\Microsoft\EdgeUpdate" -Recurse -Force 2>&1 | Write-Log
-        Get-ChildItem "$installMountDir\ProgramData\Microsoft\Windows\AppRepository\Packages\Microsoft.MicrosoftEdge.Stable*" -Directory | ForEach-Object { Set-OwnAndRemove -Path $_.FullName } 2>&1 | Write-Log
-        Get-ChildItem "$installMountDir\ProgramData\Microsoft\Windows\AppRepository\Packages\Microsoft.MicrosoftEdgeDevToolsClient*" -Directory | ForEach-Object { Set-OwnAndRemove -Path $_.FullName } 2>&1 | Write-Log
-        # Get-ChildItem "$installMountDir\Windows\WinSxS\*microsoft-edge-webview*" -Directory | ForEach-Object { Set-OwnAndRemove -Path $_.FullName } 2>&1 | Write-Log
-        Set-OwnAndRemove -Path (Join-Path -Path $installMountDir -ChildPath 'Windows\System32\Microsoft-Edge-WebView')
-        Set-OwnAndRemove -Path (Join-Path -Path $installMountDir -ChildPath 'Windows\SystemApps\Microsoft.Win32WebViewHost*' | Get-Item -ErrorAction SilentlyContinue).FullName
+    # Remove EDGE files
+    Remove-Item -Path "$installMountDir\Program Files\Microsoft\Edge" -Recurse -Force 2>&1 | Write-Log
+    Remove-Item -Path "$installMountDir\Program Files\Microsoft\EdgeCore" -Recurse -Force 2>&1 | Write-Log
+    Remove-Item -Path "$installMountDir\Program Files\Microsoft\EdgeUpdate" -Recurse -Force 2>&1 | Write-Log
+    Remove-Item -Path "$installMountDir\Program Files\Microsoft\EdgeWebView" -Recurse -Force 2>&1 | Write-Log
+    Remove-Item -Path "$installMountDir\Program Files (x86)\Microsoft\Edge" -Recurse -Force 2>&1 | Write-Log
+    Remove-Item -Path "$installMountDir\Program Files (x86)\Microsoft\EdgeCore" -Recurse -Force 2>&1 | Write-Log
+    Remove-Item -Path "$installMountDir\Program Files (x86)\Microsoft\EdgeUpdate" -Recurse -Force 2>&1 | Write-Log
+    Remove-Item -Path "$installMountDir\Program Files (x86)\Microsoft\EdgeWebView" -Recurse -Force 2>&1 | Write-Log
+    Remove-Item -Path "$installMountDir\ProgramData\Microsoft\EdgeUpdate" -Recurse -Force 2>&1 | Write-Log
+    Get-ChildItem "$installMountDir\ProgramData\Microsoft\Windows\AppRepository\Packages\Microsoft.MicrosoftEdge.Stable*" -Directory | ForEach-Object { Set-OwnAndRemove -Path $_.FullName } 2>&1 | Write-Log
+    Get-ChildItem "$installMountDir\ProgramData\Microsoft\Windows\AppRepository\Packages\Microsoft.MicrosoftEdgeDevToolsClient*" -Directory | ForEach-Object { Set-OwnAndRemove -Path $_.FullName } 2>&1 | Write-Log
+    # Get-ChildItem "$installMountDir\Windows\WinSxS\*microsoft-edge-webview*" -Directory | ForEach-Object { Set-OwnAndRemove -Path $_.FullName } 2>&1 | Write-Log
+    Set-OwnAndRemove -Path (Join-Path -Path $installMountDir -ChildPath 'Windows\System32\Microsoft-Edge-WebView') | Out-Null
+    Set-OwnAndRemove -Path (Join-Path -Path $installMountDir -ChildPath 'Windows\SystemApps\Microsoft.Win32WebViewHost*' | Get-Item -ErrorAction SilentlyContinue).FullName | Out-Null
 
-        # Removing EDGE-Task
-        Get-ChildItem -Path "$installMountDir\Windows\System32\Tasks\MicrosoftEdge*" | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
-
-        # For Windows 10 (Legacy EDGE)
-        if ($buildNumber -lt 22000) {
-            Get-ChildItem -Path "$installMountDir\Windows\SystemApps\Microsoft.MicrosoftEdge*" | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
-        }
+    # Removing EDGE-Task
+    Get-ChildItem -Path "$installMountDir\Windows\System32\Tasks\MicrosoftEdge*" | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
     
-        Write-Host "Microsoft Edge has been removed." -ForegroundColor Green
-        break
+    # For Windows 10 (Legacy EDGE)
+    if ($buildNumber -lt 22000) {
+        Get-ChildItem -Path "$installMountDir\Windows\SystemApps\Microsoft.MicrosoftEdge*" | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
     }
-    elseif ($EdgeConfirm -eq 'N') {
-        Write-Host "Microsoft Edge removal cancelled." -ForegroundColor Red
-        Write-Log -msg "Edge removal cancelled"
-        break
-    }
-    else {
-        Write-Host "Invalid input. Enter 'Y' or 'N'." -ForegroundColor Yellow
-    }
-} while ($true)
+    
+    Write-Host "[OK] EDGE has been removed" -ForegroundColor Green
+    Write-Log -msg "Microsoft Edge removal completed"
+} else {
+    Write-Log -msg "Edge removal cancelled"
+}
 
-Start-Sleep -Milliseconds 1400
-Write-Host "`nLoading Registry..." -ForegroundColor Cyan
+# Registry Tweaks
+Write-Host "`n[INFO] Loading Registry..." -ForegroundColor Cyan
 Write-Log -msg "Loading registry"
 reg load HKLM\zCOMPONENTS "$installMountDir\Windows\System32\config\COMPONENTS" 2>&1 | Write-Log
 reg load HKLM\zDEFAULT "$installMountDir\Windows\System32\config\default" 2>&1 | Write-Log
 reg load HKLM\zNTUSER "$installMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
 reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
 reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
-
 
 # Setting Permissions
 try {
@@ -656,13 +731,13 @@ try {
     }
 }
 catch {}
+Write-Host "[OK] Registry loaded" -ForegroundColor Green
 
 # Modify registry settings
-Start-Sleep -Milliseconds 1000
-Write-Host "`nPerforming Registry Tweaks..." -ForegroundColor Cyan
+Write-Host "`n[INFO] Performing Registry Tweaks..." -ForegroundColor Cyan
 
 # Disable Sponsored Apps
-Write-Host "Disabling Sponsored Apps"
+Write-Host -NoNewline ("  Disabling Sponsored Apps".PadRight($statusColumn))
 reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "OemPreInstalledAppsEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "PreInstalledAppsEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SilentInstalledAppsEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
@@ -683,9 +758,10 @@ reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryM
 reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SystemPaneSuggestionsEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg delete "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager\Subscriptions" /f 2>&1 | Write-Log
 reg delete "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager\SuggestedApps" /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable Telemetry
-Write-Host "Disabling Telemetry"
+Write-Host -NoNewline ("  Disabling Telemetry".PadRight($statusColumn))
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zNTUSER\Software\Microsoft\Personalization\Settings" /v "AcceptedPrivacyPolicy" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Privacy" /v "TailoredExperiencesWithDiagnosticDataEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
@@ -695,75 +771,78 @@ reg add "HKLM\zNTUSER\Software\Microsoft\InputPersonalization" /v "RestrictImpli
 reg add "HKLM\zNTUSER\Software\Microsoft\InputPersonalization\TrainedDataStore" /v "HarvestContacts" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" /v "Enabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zSYSTEM\ControlSet001\Services\dmwappushservice" /v "Start" /t REG_DWORD /d "4" /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable Recall on first logon
 if ($buildNumber -ge 22000) {
-    Write-Host "Disabling Recall"
+    Write-Host -NoNewline ("  Disabling Recall".PadRight($statusColumn))
     reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableRecall" /t REG_SZ /d "dism.exe /online /disable-feature /FeatureName:recall" /f 2>&1 | Write-Log
     reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableAIDataAnalysis" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
+    Write-Host "[DONE]" -ForegroundColor Green
 }
 
-#Disable Mouse Acceleration
-Write-Host "Disabling Mouse Acceleration"
+# Disable Mouse Acceleration
+Write-Host -NoNewline ("  Disabling Mouse Acceleration".PadRight($statusColumn))
 reg add "HKLM\zNTUSER\Control Panel\Mouse" /v "MouseSpeed" /t REG_SZ /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zNTUSER\Control Panel\Mouse" /v "MouseThreshold1" /t REG_SZ /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zNTUSER\Control Panel\Mouse" /v "MouseThreshold2" /t REG_SZ /d "0" /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable Meet Now icon
-Write-Host "Disabling Meet"
+Write-Host -NoNewline ("  Disabling Meet".PadRight($statusColumn))
 reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" /v "HideSCAMeetNow" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" /v "AllowOnlineTips" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
+# Disable Ads and Stuffs
+Write-Host -NoNewline ("  Disabling Ads and Stuffs".PadRight($statusColumn))
+# Disable ad tailoring
+reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" /v "Enabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 # Disable cloud-based content
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent" /v "DisableConsumerAccountStateContent" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent" /v "DisableCloudOptimizedContent" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-
-# Disable ad tailoring
-Write-Host "Disabling Ads and Stuffs"
-reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" /v "Enabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-
 # Disable Start Menu Suggestions
 reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v "Start_IrisRecommendations" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-
 # Disable News and Interest
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Feeds" /v "EnableFeeds" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-
 # Remove Spotlight icon from Desktop
 reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel" /v "{2cc5ca98-6485-489a-920e-b3e88a6ccce3}" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-
 # Disable Cortana
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search" /v "AllowCortana" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-
 # Changes MenuShowDelay from 400 to 200
 reg add "HKLM\zNTUSER\Control Panel\Desktop" /v "MenuShowDelay" /t REG_SZ /d "200" /f 2>&1 | Write-Log
-
 # Disable everytime MRT download through Win Update
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\MRT" /v "DontOfferThroughWUAU" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
-# Disable Bitlocker Encryption
-Write-Host "Disabling BitLocker Encryption"
+# Disable Bitlocker
+Write-Host -NoNewline ("  Disabling Bitlocker Encryption".PadRight($statusColumn))
 reg add "HKLM\zSYSTEM\ControlSet001\Control\BitLocker" /v "PreventDeviceEncryption" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable OneDrive Stuffs
-Write-Host "Removing OneDrive Junks"
+Write-Host -NoNewline ("  Removing OneDrive Junks".PadRight($statusColumn))
 reg delete "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Run" /v "OneDriveSetup" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\OneDrive" /v "DisableLibrariesDefaultSaveToOneDrive" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\OneDrive" /v "DisableFileSyncNGSC" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\OneDrive" /v "KFMBlockOptIn" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable GameDVR
-Write-Host "Disabling GameDVR and Components"
+Write-Host -NoNewline ("  Disabling GameDVR and Components".PadRight($statusColumn))
 reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\GameDVR" /v "AppCaptureEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zNTUSER\System\GameConfigStore" /v "GameDVR_Enabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\GameDVR" /v "AllowGameDVR" /t REG_DWORD /d 0 /f 2>&1 | Write-Log
 reg add "HKLM\zSYSTEM\ControlSet001\Services\BcastDVRUserService" /v "Start" /t REG_DWORD /d 4 /f 2>&1 | Write-Log
 reg add "HKLM\zSYSTEM\ControlSet001\Services\GameBarPresenceWriter" /v "Start" /t REG_DWORD /d 4 /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
-# Removing Gamebar Popup
+# Remove Gamebar Popup
 # Courtesy: https://pastebin.com/EAABLssA by aveyo
-Write-Host "Removing Gamebar Popup"
+Write-Host -NoNewline ("  Removing Gamebar Popup".PadRight($statusColumn))
 reg add "HKLM\zNTUSER\Software\Microsoft\GameBar" /v "AutoGameModeEnabled" /t REG_DWORD /d 0 /f 2>&1 | Write-Log
 # Rest added as post install script. Somehow, implementing it directly on the image was causing corruption
+Write-Host "[DONE]" -ForegroundColor Green
 
 # # Configure GameBarFTServer (NA)
 # $packageKey = "HKLM\zSOFTWARE\Classes\PackagedCom\ClassIndex\{FD06603A-2BDF-4BB1-B7DF-5DC68F353601}"
@@ -771,7 +850,7 @@ reg add "HKLM\zNTUSER\Software\Microsoft\GameBar" /v "AutoGameModeEnabled" /t RE
 # reg add "HKLM\zSOFTWARE\Classes\PackagedCom\Package\$app\Server\0" /v "Executable" /t REG_SZ /d "systray.exe" /f 2>&1 | Write-Log
 
 # Enabling Local Account Creation
-Write-Host "Tweaking OOBE Settings"
+Write-Host -NoNewline ("  Tweaking OOBE Settings".PadRight($statusColumn))
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\OOBE" /v "DisablePrivacyExperience" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v "BypassNRO" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v "BypassNROGatherOptions" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
@@ -784,9 +863,10 @@ if (Test-Path -Path $autounattendXmlPath) {
     Write-Host "Warning: Autounattend.xml not found at $autounattendXmlPath" -ForegroundColor Yellow
     Write-Log -msg "Warning: Autounattend.xml not found at $autounattendXmlPath"
 }
+Write-Host "[DONE]" -ForegroundColor Green
 
 # Prevents Dev Home Installation
-Write-Host "Disabling useless junks"
+Write-Host -NoNewline ("  Disabling useless junks".PadRight($statusColumn))
 reg delete "HKLM\zSOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\DevHomeUpdate" /v "workCompleted" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
 
@@ -797,8 +877,10 @@ reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestra
 # Prevents Chat Auto Installation
 reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Communications" /v "ConfigureChatAutoInstall" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Chat" /v "ChatIcon" /t REG_DWORD /d "3" /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
-Write-Host "Disabling Scheduled Tasks"
+# Disable Scheduled Tasks
+Write-Host -NoNewline ("  Disabling Scheduled Tasks".PadRight($statusColumn))
 $win24H2 = (Get-ItemProperty -Path 'Registry::HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name DisplayVersion).DisplayVersion -eq '24H2'
 if ($win24H2) {
     # Customer Experience Improvement Program
@@ -827,124 +909,111 @@ reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCach
 reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\Autochk\Proxy" /f 2>&1 | Write-Log
 reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\Customer Experience Improvement Program\Consolidator" /f 2>&1 | Write-Log
 reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip" /f 2>&1 | Write-Log
+Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable TPM CHeck
-Write-Host
-do {
-    $TPMConfirm = Read-Host "Bypass System Requirments Check? (Y/N)"
-    $TPMConfirm = $TPMConfirm.ToUpper()
-    if ($TPMConfirm -eq 'Y') {
-        Write-Host "Disabling TPM Check" -ForegroundColor Cyan
-        reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-        reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-        reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassStorageCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-        reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassCPUCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-        reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-        reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassDiskCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-        reg add "HKLM\zSYSTEM\Setup\MoSetup" /v "AllowUpgradesWithUnsupportedTPMOrCPU" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
 
-        # Disable Unsupported Hardware Watermark
-        reg add "HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-        reg add "HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-        reg add "HKLM\zNTUSER\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-        reg add "HKLM\zNTUSER\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-        
-        try {
-            $bootWimPath = Join-Path $destinationPath "sources\boot.wim"
-            $bootMountDir = "$env:SystemDrive\WIDTemp\mountdir\bootWIM"
-            New-Item -ItemType Directory -Path $bootMountDir 2>&1 | Write-Log
-            Mount-WindowsImage -ImagePath $bootWimPath -Index 2 -Path $bootMountDir 2>&1 | Write-Log
+if ($TPMBypass) {
+    Write-Host "`n[INFO] Disabling TPM Check" -ForegroundColor Cyan
+    Write-Log -msg "Disabling TPM Check"
+    reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+    reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+    reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassStorageCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+    reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassCPUCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+    reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+    reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassDiskCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+    reg add "HKLM\zSYSTEM\Setup\MoSetup" /v "AllowUpgradesWithUnsupportedTPMOrCPU" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+    
+    # Disable Unsupported Hardware Watermark
+    reg add "HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+    reg add "HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+    reg add "HKLM\zNTUSER\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+    reg add "HKLM\zNTUSER\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+    
+    try {
+        $bootWimPath = Join-Path $destinationPath "sources\boot.wim"
+        $bootMountDir = "$env:SystemDrive\WIDTemp\mountdir\bootWIM"
+        New-Item -ItemType Directory -Path $bootMountDir 2>&1 | Write-Log
+        Mount-WindowsImage -ImagePath $bootWimPath -Index 2 -Path $bootMountDir 2>&1 | Write-Log
 
-            reg load HKLM\xDEFAULT "$bootMountDir\Windows\System32\config\default" 2>&1 | Write-Log
-            reg load HKLM\xNTUSER "$bootMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
-            reg load HKLM\xSYSTEM "$bootMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
+        reg load HKLM\xDEFAULT "$bootMountDir\Windows\System32\config\default" 2>&1 | Write-Log
+        reg load HKLM\xNTUSER "$bootMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
+        reg load HKLM\xSYSTEM "$bootMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
 
-            reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
-            reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
-            reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassStorageCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
-            reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassCPUCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
-            reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
-            reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassDiskCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            reg add "HKLM\xSYSTEM\Setup\MoSetup" /v "AllowUpgradesWithUnsupportedTPMOrCPU" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
-            reg add "HKLM\xDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\xDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
+        reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
+        reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassStorageCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
+        reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassCPUCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
+        reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
+        reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassDiskCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\xSYSTEM\Setup\MoSetup" /v "AllowUpgradesWithUnsupportedTPMOrCPU" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
+        reg add "HKLM\xDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\xDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
 
-            reg unload HKLM\xDEFAULT 2>&1 | Write-Log
-            reg unload HKLM\xNTUSER 2>&1 | Write-Log
-            reg unload HKLM\xSYSTEM 2>&1 | Write-Log
+        reg unload HKLM\xDEFAULT 2>&1 | Write-Log
+        reg unload HKLM\xNTUSER 2>&1 | Write-Log
+        reg unload HKLM\xSYSTEM 2>&1 | Write-Log
 
-            Dismount-WindowsImage -Path $bootMountDir -Save 2>&1 | Write-Log
-            Write-Host "Done" -ForegroundColor Green
-        }
-        catch {
-            Write-Log -msg "Failed to mount boot.wim: $_"
-        }
-        break
+        Dismount-WindowsImage -Path $bootMountDir -Save 2>&1 | Write-Log
+        Write-Host "[OK] TPM Bypass Successful" -ForegroundColor Green
+        Write-Log -msg "Successfully modified boot.wim for TPM Bypass"
     }
-    elseif ($TPMConfirm -eq 'N') {
-        Write-Host "Cancelled." -ForegroundColor Red
-        break
+    catch {
+        Write-Log -msg "Failed to mount boot.wim: $_"
     }
-    else {
-        Write-Host "Invalid input. Enter 'Y' or 'N'." -ForegroundColor Yellow
-    }
-} while ($true)
+    
+} else {
+    Write-Log -msg "TPM Bypass cancelled"
+}
 
 # Bring back user folders
 if ($buildNumber -ge 22000) {
-    Write-Host
-    do {
-        $expConfirm = Read-Host "Windows 11 disables 'User Folders' in This PC. Enable those again? (Y/N)"
-        $expConfirm = $expConfirm.ToUpper()
-        if ($expConfirm -eq 'Y') {
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /f
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{d3162b92-9365-467a-956b-92703aca08af}" /f
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{088e3905-0323-4b02-9826-5d99428e115f}" /f
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}" /f
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /f
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /f
+    if ($UserFoldersEnable) {
+        Write-Host "`n[INFO] Restoring User Folders" -ForegroundColor Cyan
 
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{d3162b92-9365-467a-956b-92703aca08af}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{088e3905-0323-4b02-9826-5d99428e115f}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /f
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{d3162b92-9365-467a-956b-92703aca08af}" /f
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{088e3905-0323-4b02-9826-5d99428e115f}" /f
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}" /f
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /f
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /f
 
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{d3162b92-9365-467a-956b-92703aca08af}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{088e3905-0323-4b02-9826-5d99428e115f}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-            break
-        }
-        elseif ($expConfirm -eq 'N') {
-            Write-Host "Cancelled" -ForegroundColor Red
-            break
-        }
-        else {
-            Write-Host "Invalid input. Enter 'Y' or 'N'." -ForegroundColor Yellow
-        }
-    } while ($true)
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{d3162b92-9365-467a-956b-92703aca08af}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{088e3905-0323-4b02-9826-5d99428e115f}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /v "HideIfEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{d3162b92-9365-467a-956b-92703aca08af}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{088e3905-0323-4b02-9826-5d99428e115f}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        
+        Write-Host "[OK] User Folders Restored" -ForegroundColor Green
+        Write-Log -msg "User folders restored successfully"
+    } else {
+        Write-Log -msg "User folders restoration cancelled"
+    }
 }
 
-Start-Sleep -Milliseconds 1500
-Write-Host "`nUnloading Registry..."
+Write-Host "`n[INFO] Unloading Registry..." -ForegroundColor Cyan
 Write-Log -msg "Unloading registry"
 reg unload HKLM\zCOMPONENTS 2>&1 | Write-Log
 reg unload HKLM\zDEFAULT 2>&1 | Write-Log
 reg unload HKLM\zNTUSER 2>&1 | Write-Log
 reg unload HKLM\zSOFTWARE 2>&1 | Write-Log
 reg unload HKLM\zSYSTEM 2>&1 | Write-Log
+Write-Host "[OK] Success" -ForegroundColor Green
 
-Start-Sleep -Milliseconds 1000
-Write-Host "`nCleaning up image..."
+# Unmounting and cleaning up the image
+Write-Host "`n[INFO] Cleaning up image..." -ForegroundColor Cyan
 Write-Log -msg "Cleaning up image"
 Repair-WindowsImage -Path $installMountDir -StartComponentCleanup -ResetBase 2>&1 | Write-Log
 
-Start-Sleep -Milliseconds 1000
-Write-Host "`nUnmounting and Exporting image..."
+Write-Host "`n[INFO] Unmounting and Exporting image..." -ForegroundColor Cyan
 Write-Log -msg "Unmounting image"
 try {
     Dismount-WindowsImage -Path $installMountDir -Save 2>&1 | Write-Log
@@ -961,33 +1030,33 @@ catch {
 }
 
 Write-Log -msg "Exporting image"
-Write-Host
-$compressRecovery = Read-Host "Compress install.wim to save disk space? (Y/N)"
 $tempWimPath = "$destinationPath\sources\install_temp.wim"
 $exportSuccess = $false
 
-if ($compressRecovery -eq 'Y' -or $compressRecovery -eq 'y') {
+if ($ESDConvert) {
+    Write-Host "`n[INFO] Compressing image to esd..." -ForegroundColor Cyan
     try {        
         $process = Start-Process -FilePath "dism.exe" -ArgumentList "/Export-Image /SourceImageFile:`"$destinationPath\sources\install.wim`" /SourceIndex:$sourceIndex /DestinationImageFile:`"$tempWimPath`" /Compress:Recovery /CheckIntegrity" -Wait -NoNewWindow -PassThru
         if ($process.ExitCode -eq 0 -and (Test-Path $tempWimPath)) {
             $exportSuccess = $true
-            Write-Host "`nCompression completed" -ForegroundColor Green
+            Write-Host "[OK] Compression completed" -ForegroundColor Green
             Write-Log -msg "Compression completed"
         } else {
-            Write-Host "`nCompression failed with exit code: $($process.ExitCode)" -ForegroundColor Red
+            Write-Host "Compression failed with exit code: $($process.ExitCode)" -ForegroundColor Red
             Write-Log -msg "Compression failed with exit code: $($process.ExitCode)"
         }
     } catch {
-        Write-Host "`nCompression failed with error: $_" -ForegroundColor Red
+        Write-Host "Compression failed with error: $_" -ForegroundColor Red
         Write-Log -msg "Compression failed with error: $_"
     }
 }
 else {
+    Write-Host "`n[INFO] Exporting image to wim..." -ForegroundColor Cyan
     try {
         Export-WindowsImage -SourceImagePath "$destinationPath\sources\install.wim" -SourceIndex $sourceIndex -DestinationImagePath $tempWimPath -CompressionType Maximum -CheckIntegrity 2>&1 | Write-Log
         if (Test-Path $tempWimPath) {
             $exportSuccess = $true
-            Write-Host "Export completed successfully" -ForegroundColor Green
+            Write-Host "[OK] Export completed successfully" -ForegroundColor Green
             Write-Log -msg "Export completed successfully"
         } else {
             Write-Host "Export failed - temp WIM not found" -ForegroundColor Red
@@ -1020,10 +1089,10 @@ if ($exportSuccess) {
 
 # Verify the WIM file is accessible and valid
 try {
-    $wimInfo = Get-WindowsImage -ImagePath "$destinationPath\sources\install.wim" -ErrorAction Stop
-    if ($wimInfo) {
-        Write-Host "WIM file validation successful: $($wimInfo.Count) images found" -ForegroundColor Green
-        Write-Log -msg "WIM validation passed: $($wimInfo.Count) images found"
+    $wimPath = Get-WindowsImage -ImagePath "$destinationPath\sources\install.wim" -ErrorAction Stop
+    if ($wimPath) {
+        Write-Host "[OK] WIM file validation successful: $($wimPath.Count) images found" -ForegroundColor Green
+        Write-Log -msg "WIM validation passed: $($wimPath.Count) images found"
         
         # Force a filesystem sync to ensure all changes are written to disk
         [System.IO.File]::OpenWrite("$destinationPath\sources\install.wim").Close()
@@ -1046,7 +1115,6 @@ $ISOFile = Join-Path -Path $scriptDirectory -ChildPath "$ISOFileName.iso"
 if (-not (Test-Path -Path $Oscdimg)) {
     Write-Log -msg "Oscdimg.exe not found at '$Oscdimg'"
     Write-Host "`nOscdimg.exe not found at '$Oscdimg'." -ForegroundColor Red
-    Start-Sleep -Milliseconds 1400
     Write-Host "`nTrying to Download oscdimg.exe..." -ForegroundColor Cyan
 
     # Function to check internet connection
@@ -1132,12 +1200,10 @@ if (-not (Test-Path -Path $Oscdimg)) {
         Exit
     }
 }
-Start-Sleep -Milliseconds 1000
-
 
 # Generate ISO
-Write-Host "`nGenerating ISO..." -ForegroundColor Cyan
-Write-Log -msg "Generating ISO"
+Write-Host "`n[INFO] Generating ISO..." -ForegroundColor Cyan
+Write-Log -msg "Generating ISO using OSCDIMG"
 try {
     $etfsbootPath = "$destinationPath\boot\etfsboot.com"
     $efisysPath = "$destinationPath\efi\Microsoft\boot\efisys.bin"
@@ -1182,7 +1248,6 @@ if (Test-Path -Path $ISOFile) {
 
         Dismount-DiskImage -ImagePath "$ISOFile" 2>&1 | Write-Log
 
-        Start-Sleep -Milliseconds 1000
         if ($missingFiles) {
             Write-Host "`nError: Created ISO is missing critical files" -ForegroundColor Red
             Write-Log -msg "ISO verification failed - missing files: $($missingFiles -join ', ')"

@@ -36,8 +36,43 @@ irm "https://itsnileshhere.github.io/Windows-ISO-Debloater/download.ps1" | iex
 
 ### Option 2: Manual Download and Execution
 
-1. Download the latest release from [here](https://github.com/itsNileshHere/Windows-ISO-Debloater/releases/latest)
-3. Right-click on the script and select "Run with PowerShell" (as Administrator)
+Download the latest `isoDebloater.ps1` from [here](https://github.com/itsNileshHere/Windows-ISO-Debloater/releases/latest)
+
+#### Command Line Arguments
+
+```powershell
+# SYNTAX
+.\isoDebloaterScript.ps1 [OPTIONS]
+
+# REQUIRED PARAMETERS FOR AUTOMATED MODE
+-noPrompt                   # Run without prompts (requires -isoPath, -winEdition, -outputISO)
+-isoPath "path\to\iso"      # Path to Windows ISO file
+-winEdition "Name"          # Name of Windows image to process (e.g., "Windows 11 Pro")
+-outputISO "Name"           # Output ISO filename (without extension)
+
+# CUSTOMIZATION PARAMETERS (All accept "yes" or "no") [Optional]
+-AppxRemove "yes"           # Remove Microsoft Store apps [Default: yes]
+-CapabilitiesRemove "yes"   # Remove optional Windows features [Default: yes]
+-OnedriveRemove "yes"       # Remove OneDrive completely [Default: yes]
+-EDGERemove "yes"           # Remove Microsoft Edge browser [Default: yes]
+-TPMBypass "no"             # Bypass TPM & hardware checks [Default: no]
+-UserFoldersEnable "yes"    # Enable user folders in Explorer [Default: yes]
+-ESDConvert "no"            # Compress ISO using ESD compression [Default: no]
+-useOscdimg "yes"           # Use oscdimg.exe for ISO creation [Default: yes]
+
+# EXAMPLES
+# Basic usage with interactive prompts:
+.\isoDebloaterScript.ps1
+
+# Fully automated with no prompts:
+.\isoDebloaterScript.ps1 -noPrompt -isoPath "C:\path\to\windows.iso" -winEdition "Windows 11 Pro" -outputISO "Win11Debloat.iso"
+
+# Customize specific options:
+.\isoDebloaterScript.ps1 -isoPath "C:\path\to\windows.iso" -EDGERemove no -TPMBypass yes
+
+# Create minimal Windows installation:
+.\isoDebloaterScript.ps1 -AppxRemove yes -CapabilitiesRemove yes -OnedriveRemove yes -EDGERemove yes -ESDConvert yes
+```
 
 ## 📝 Step-by-Step Usage Guide
 
@@ -78,20 +113,35 @@ For those who prefer to use their own copy of oscdimg.exe:
 3. Navigate to: `C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg`
 4. Check if `oscdimg.exe` is installed properly
 
-### IMAPI2FS ISO Generation Method (Experimental)
+### ISO Generation Methods
 
-An alternative, ISO generation method using the [IMAPI2FS interface](https://learn.microsoft.com/en-us/windows/win32/api/_imapi/) is also available:
+The script supports two methods for creating the final ISO file:
 
-1. **Native Windows COM Objects**: Uses native Windows components without requiring external dependencies
-2. **No oscdimg.exe Required**: Creates bootable ISOs directly through Windows COM interfaces
-3. **Potentially More Compatible**: May work in environments where oscdimg has issues
+#### 1. Oscdimg Method (Default)
+
+By default, the script uses `oscdimg.exe`, to create bootable ISO images
+- Downloads automatically if not present
+- Creates highly compatible ISO files
+- Recommended for most users
+
+To use this method (default):
+```powershell
+.\isoDebloaterScript.ps1 -useOscdimg yes
+```
+
+#### 2. IMAPI2FS Method (Alternative)
+
+An alternative ISO generation method using the [IMAPI2FS interface](https://learn.microsoft.com/en-us/windows/win32/api/_imapi/)
+- Uses native Windows COM objects without external dependencies
+- Creates bootable ISOs directly through Windows COM interfaces
+- May work in environments where oscdimg has issues
 
 To use this method:
-1. Run the [`isoDebloaterScript_IMAPI2FS.ps1`](https://github.com/itsNileshHere/Windows-ISO-Debloater/blob/main/isoDebloaterScript_IMAPI2FS.ps1) script instead of the main script
-2. Follow the same process as with the regular method
-3. The ISO will be generated using the IMAPI2FS interfaces
+```powershell
+.\isoDebloaterScript.ps1 -useOscdimg no
+```
 
-⚠️ **Note**: This method is still considered experimental and may not work in all environments.
+⚠️ **Note**: The IMAPI2FS method is still considered experimental and may not work in all environments.
 
 ## 📊 What Gets Removed?
 

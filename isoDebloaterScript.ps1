@@ -46,16 +46,16 @@ $asciiArt = @"
 "@
 
 Write-Host $asciiArt -ForegroundColor Cyan
-Start-Sleep -Milliseconds 1200
+Start-Sleep -Milliseconds 1000
 Write-Host "Starting Windows ISO Debloater Script..." -ForegroundColor Green
-Start-Sleep -Milliseconds 1200
+Start-Sleep -Milliseconds 800
 Write-Host "`n*Important Notes: " -ForegroundColor Yellow
 Write-Host "  1. Some prompts will appear during the process."
 Write-Host "  2. Administrative privileges are required to run this script."
 Write-Host "  3. Review the script beforehand to understand its actions."
 Write-Host "  4. To whitelist a package, open the script and comment out the corresponding Packagename."
 Write-Host "  5. Select the ISO to proceed."
-Start-Sleep -Milliseconds 1200
+Start-Sleep -Milliseconds 800
 
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $PSDefaultParameterValues['*:Encoding'] = 'utf8'
@@ -320,7 +320,7 @@ try {
         Write-Log -msg "Copy completed (Exit: $robocopyExitCode)"
         Write-Log -msg "Removing read-only attributes..."
         Get-ChildItem -Path $destinationPath -Recurse | ForEach-Object { $_.Attributes = $_.Attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly) } | Out-Null
-    } 
+    }
     else { throw "Robocopy failed: $robocopyExitCode" }
 } catch { Write-Log -msg "Copy failed: $($_.Exception.Message)"; throw }
 
@@ -448,7 +448,6 @@ if (-not $WimDetails -or -not $WimDetails.BuildNumber -or -not $WimDetails.Langu
 $langCode = $WimDetails.Language; Write-Log -msg "Detected Language: $langCode"
 $buildNumber = $WimDetails.BuildNumber; Write-Log -msg "Detected Build Number: $buildNumber"
 
-
 Write-Host
 $DoAppxRemove = Get-ParameterValue -ParameterValue $AppxRemove -DefaultValue $true -Question "Remove unnecessary packages?" -Description "Recommended: Removes bloatware apps"
 $DoCapabilitiesRemove = Get-ParameterValue -ParameterValue $CapabilitiesRemove -DefaultValue $true -Question "Remove unnecessary features?" -Description "Recommended: Removes optional Windows features"
@@ -458,12 +457,6 @@ $DoTPMBypass = Get-ParameterValue -ParameterValue $TPMBypass -DefaultValue $fals
 $DoUserFoldersEnable = Get-ParameterValue -ParameterValue $UserFoldersEnable -DefaultValue $true -Question "Enable user folders?" -Description "Recommended: Enables Desktop, Documents, etc."
 $DoESDConvert = Get-ParameterValue -ParameterValue $ESDConvert -DefaultValue $false -Question "Compress the ISO?" -Description "Recommended but slow: Reduces ISO file size"
 $DoUseOscdimg = Get-ParameterValue -ParameterValue $useOscdimg -DefaultValue $true -Question "Use Oscdimg for ISO creation?" -Description "Recommended: Oscdimg is more reliable"
-
-
-
-
-
-
 
 # Comment out the package don't wanna remove
 $appxPatternsToRemove = @(
@@ -562,11 +555,7 @@ function Remove-Packages {
             LogPrefix = 'Windows package'
         }
     }
-    
-    if ($SectionTitle) {
-        Write-Host "`n$SectionTitle" -ForegroundColor Cyan
-        Write-Log -msg $SectionTitle
-    }
+    if ($SectionTitle) { Write-Host "`n$SectionTitle" -ForegroundColor Cyan; Write-Log -msg $SectionTitle }
     
     # Validate Package Type
     $cfg = $config[$PackageType]
@@ -1326,7 +1315,7 @@ if ($DoUseOscdimg) {
     }
 }
 else {
-    Write-Host "`nPreparing ISO creation" -ForegroundColor Cyan
+    Write-Host "`n[INFO] Preparing ISO creation..." -ForegroundColor Cyan
     Write-Log -msg "Preparing ISO creation"
 
     # ISOWriter class
@@ -1379,12 +1368,12 @@ else {
         $FSImage.Root.AddTree($destinationPath, $false)
         $FSImage.BootImageOptions = $bootOptions
         
-        Write-Host "`nGenerating ISO..." -ForegroundColor Cyan
-        Write-Log -msg "Generating ISO file"
+        Write-Host "[INFO] Generating ISO..." -ForegroundColor Cyan
+        Write-Log -msg "Generating ISO using ISOWriter"
         $resultImage = $FSImage.CreateResultImage()
         $comObjects += $resultImage
 
-        [ISOWriter]::Create($ISOFile, [ref]$resultImage.ImageStream, $resultImage.BlockSize, $resultImage.TotalBlocks)
+        [ISOWriter]::Create($ISOFile, [ref]$resultImage.ImageStream, $resultImage.BlockSize, $resultImage.TotalBlocks) | Out-Null
         
         if ((Get-Item $ISOFile).Length -eq ($resultImage.BlockSize * $resultImage.TotalBlocks)) {
             Write-Log -msg "ISO successfully created at: $ISOFile"
@@ -1401,7 +1390,7 @@ else {
         }
         [GC]::Collect()
         [GC]::WaitForPendingFinalizers()
-        Write-Host "ISO generated successfully" -ForegroundColor Green
+        Write-Host "[OK] ISO creation successful" -ForegroundColor Green
     }
 }
 
@@ -1435,7 +1424,6 @@ if (Test-Path -Path $ISOFile) {
 }
 
 # Remove temporary files
-Write-Host "`nRemoving temporary files..."
 Write-Log -msg "Removing temporary files"
 try {
     Remove-TempFiles
@@ -1447,4 +1435,5 @@ finally {
     Write-Log -msg "Script completed"
 }
 
+Write-Host
 Pause

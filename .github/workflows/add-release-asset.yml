@@ -6,7 +6,7 @@ on:
 
 jobs:
   add-script-to-release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     
     permissions:
       contents: write
@@ -15,12 +15,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Prepare release assets
+      - name: Generate release files
+        shell: pwsh
         run: |
-          cp download.ps1 isoDebloater.ps1
-          
-          echo '@(set "0=%~f0"^)#) & powershell -nop -c iex([io.file]::ReadAllText($env:0)) & exit /b' > isoDebloater.bat
-          cat download.ps1 >> isoDebloater.bat
+          ./doRelease.ps1
           
       - name: Upload PowerShell script
         run: |

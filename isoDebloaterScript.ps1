@@ -4,10 +4,10 @@
 # Description: A simple PSscript to modify windows iso file. For more info check README.md
 
 param(
-    [switch]$noprompt,
-    [string]$isopath = "",
-    [string]$wimImage = "",
-    [string]$outputiso = "",
+    [switch]$noPrompt,
+    [string]$isoPath = "",
+    [string]$winEdition = "",
+    [string]$outputISO = "",
     [ValidateSet("yes", "no")]$AppxRemove = "",
     [ValidateSet("yes", "no")]$CapabilitiesRemove = "",
     [ValidateSet("yes", "no")]$OnedriveRemove = "",
@@ -18,21 +18,26 @@ param(
     [ValidateSet("yes", "no")]$useOscdimg = ""
 )
 
-# If -noprompt is used, ensure required parameters are provided
-if ($noprompt) {
-    $missing = @("isopath","wimImage","outputiso") | Where-Object { [string]::IsNullOrWhiteSpace((Get-Variable $_).Value) }
-    if ($missing) { Write-Error "When using -noprompt, these parameters are required: $($missing -join ', ')"; exit 1 }
+# If -noPrompt is used, ensure required parameters are provided
+if ($noPrompt) {
+    $missing = @("isoPath","winEdition","outputISO") | Where-Object { [string]::IsNullOrWhiteSpace((Get-Variable $_).Value) }
+    if ($missing) { Write-Error "When using -noPrompt, these parameters are required: $($missing -join ', ')"; Exit 1 }
 }
 
 # Disable Pause if -noprompt is used
-if ($noprompt) { function Pause { } }
-else { function Pause { Read-Host "Press Enter to continue..." } }
+if ($noPrompt) { function Pause { } }
 
 # Administrator Privileges
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "This script must be run as Administrator. Re-launching with elevated privileges..." -ForegroundColor Yellow
-    $argss = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`""
-    if (Get-Command wt -ErrorAction SilentlyContinue) { Start-Process wt "PowerShell $argss" -Verb RunAs } else { Start-Process PowerShell $argss -Verb RunAs }
+    $params = @()
+    $PSBoundParameters.GetEnumerator() | ForEach-Object {
+        if ($_.Value -is [switch] -and $_.Value) { $params += "-$($_.Key)" }
+        elseif ($_.Value -is [string] -and $_.Value) { $params += "-$($_.Key)", "`"$($_.Value)`"" }
+    }    
+    $argss = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" $($params -join ' ')"
+    if (Get-Command wt -ErrorAction SilentlyContinue) { Start-Process wt "PowerShell $argss" -Verb RunAs }
+    else { Start-Process PowerShell $argss -Verb RunAs }
     Exit
 }
 Clear-Host
@@ -113,14 +118,14 @@ function Get-Confirmation {
 # Parameter Value Validation Function
 function Get-ParameterValue {
     param( [string]$ParameterValue, [bool]$DefaultValue, [string]$Question, [string]$Description )
-    # If noprompt is enabled, use default
-    if ($noprompt) {
+    # If noPrompt is enabled, use default
+    if ($noPrompt) {
         if ($ParameterValue -ne "") { return $ParameterValue -eq "yes" }
         else { return $DefaultValue }
     }
-    # If noprompt is null but param was provided, use the provided value
+    # If noPrompt is null but param was provided, use the provided value
     if ($ParameterValue -ne "") { return $ParameterValue -eq "yes" }
-    # If neither noprompt nor param was provided, prompt the user
+    # If neither noPrompt nor param was provided, prompt the user
     return Get-Confirmation -Question $Question -DefaultValue $DefaultValue -Description $Description
 }
 
@@ -274,7 +279,7 @@ function Select-ISOFile {
     }
 }
 
-if ($isopath) {$isoFilePath = $isopath}     # If ISO path is provided as parameter
+if ($isoPath) {$isoFilePath = $isoPath}     # If ISO path is provided as parameter
 else {$isoFilePath = Select-ISOFile}        # Prompt user to select ISO file
 if ($null -eq $isoFilePath) {
     Write-Host "No file selected. Exiting Script" -ForegroundColor Red
@@ -352,9 +357,9 @@ if (-not (Test-Path $installWimPath)) {
             foreach ($image in $esdInfo) {
                 Write-Host "$($image.Index). $($image.ImageName)"
             }
-            # If wimImage is specified, find the index; else prompt user
-            if ($wimImage) {
-                $matchedImage = $esdInfo | Where-Object { $_.ImageName -ieq $wimImage }
+            # If winEdition is specified, find the index; else prompt user
+            if ($winEdition) {
+                $matchedImage = $esdInfo | Where-Object { $_.ImageName -ieq $winEdition }
                 if ($matchedImage) { $sourceIndex = $matchedImage.Index }
                 else { $sourceIndex = 1 }
             }
@@ -404,9 +409,9 @@ else {
         foreach ($image in $wimInfo) {
             Write-Host "$($image.Index). $($image.ImageName)"
         }
-        # If wimImage is specified, find the index; else prompt user
-        if ($wimImage) {
-            $matchedImage = $wimInfo | Where-Object { $_.ImageName -ieq $wimImage }
+        # If winEdition is specified, find the index; else prompt user
+        if ($winEdition) {
+            $matchedImage = $wimInfo | Where-Object { $_.ImageName -ieq $winEdition }
             if ($matchedImage) { $sourceIndex = $matchedImage.Index }
             else { $sourceIndex = 1 }
         }
@@ -1184,7 +1189,7 @@ try {
 }
 
 Write-Log -msg "Checking required files"
-if ($outputiso) { $ISOFileName = [System.IO.Path]::GetFileNameWithoutExtension($outputiso) }
+if ($outputISO) { $ISOFileName = [System.IO.Path]::GetFileNameWithoutExtension($outputISO) }
 else { $ISOFileName = Read-Host -Prompt "`nEnter the name for the ISO file (without extension)" }
 $ISOFile = Join-Path -Path $scriptDirectory -ChildPath "$ISOFileName.iso"
 

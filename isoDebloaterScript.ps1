@@ -3,6 +3,31 @@
 # Date: 2023-11-21
 # Description: A simple PSscript to modify windows iso file. For more info check README.md
 
+param(
+    [switch]$noprompt,
+    [string]$isopath = "",
+    [string]$wimImage = "",
+    [string]$outputiso = "",
+    [ValidateSet("yes", "no")]$AppxRemove = "",
+    [ValidateSet("yes", "no")]$CapabilitiesRemove = "",
+    [ValidateSet("yes", "no")]$OnedriveRemove = "",
+    [ValidateSet("yes", "no")]$EDGERemove = "",
+    [ValidateSet("yes", "no")]$TPMBypass = "",
+    [ValidateSet("yes", "no")]$UserFoldersEnable = "",
+    [ValidateSet("yes", "no")]$ESDConvert = "",
+    [ValidateSet("yes", "no")]$useOscdimg = ""
+)
+
+# If -noprompt is used, ensure required parameters are provided
+if ($noprompt) {
+    $missing = @("isopath","wimImage","outputiso") | Where-Object { [string]::IsNullOrWhiteSpace((Get-Variable $_).Value) }
+    if ($missing) { Write-Error "When using -noprompt, these parameters are required: $($missing -join ', ')"; exit 1 }
+}
+
+# Disable Pause if -noprompt is used
+if ($noprompt) { function Pause { } }
+else { function Pause { Read-Host "Press Enter to continue..." } }
+
 # Administrator Privileges
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "This script must be run as Administrator. Re-launching with elevated privileges..." -ForegroundColor Yellow
@@ -79,9 +104,24 @@ function Get-Confirmation {
             return $DefaultValue
         }
         $answer = $answer.ToUpper()
-        if ($answer -eq 'Y' -or $answer -eq 'N') { return $answer -eq 'Y' }
+        if ($answer -eq 'Y') { return $true }
+        if ($answer -eq 'N') { return $false }
         Write-Host "Invalid input. Enter 'Y' for Yes, 'N' for No, or Enter for default ($defaultText)." -ForegroundColor Yellow 
     } while ($true) 
+}
+
+# Parameter Value Validation Function
+function Get-ParameterValue {
+    param( [string]$ParameterValue, [bool]$DefaultValue, [string]$Question, [string]$Description )
+    # If noprompt is enabled, use default
+    if ($noprompt) {
+        if ($ParameterValue -ne "") { return $ParameterValue -eq "yes" }
+        else { return $DefaultValue }
+    }
+    # If noprompt is null but param was provided, use the provided value
+    if ($ParameterValue -ne "") { return $ParameterValue -eq "yes" }
+    # If neither noprompt nor param was provided, prompt the user
+    return Get-Confirmation -Question $Question -DefaultValue $DefaultValue -Description $Description
 }
 
 # Cleanup Function
@@ -220,35 +260,44 @@ if (-not (Test-Path $autounattendXmlPath)) {
 }
 
 # Mount ISO Dialog
-Add-Type -AssemblyName System.Windows.Forms
-$openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
-$openFileDialog.InitialDirectory = [Environment]::GetFolderPath("Desktop")
-$openFileDialog.Filter = "ISO files (*.iso)|*.iso"
-$openFileDialog.Title = "Select Windows ISO File"
+function Select-ISOFile {
+    Add-Type -AssemblyName System.Windows.Forms
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.InitialDirectory = [Environment]::GetFolderPath("Desktop")
+    $dialog.Filter = "ISO files (*.iso)|*.iso"
+    $dialog.Title = "Select Windows ISO File"
 
-if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-    $isoFilePath = $openFileDialog.FileName
-    Write-Host "`nSelected ISO file: " -NoNewline -ForegroundColor Cyan
-    Write-Host "$isoFilePath"
-    Write-Log -msg "ISO Path: $isoFilePath"
-    $mountResult = Mount-DiskImage -ImagePath "$isoFilePath" -PassThru
-    if ($mountResult) {
-        $sourceDriveLetter = ($mountResult | Get-Volume).DriveLetter
-        if ($sourceDriveLetter) {
-            Write-Log -msg "Mounted ISO file to drive: $sourceDriveLetter`:"
-        }
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $dialog.FileName
+    } else {
+        return $null
     }
-    else {
-        Write-Host "Failed to mount the ISO file." -ForegroundColor Red
-        Write-Log -msg "Failed to mount the ISO file."
-        Read-Host -Prompt "Press Enter to exit"
-        Exit
+}
+
+if ($isopath) {$isoFilePath = $isopath}     # If ISO path is provided as parameter
+else {$isoFilePath = Select-ISOFile}        # Prompt user to select ISO file
+if ($null -eq $isoFilePath) {
+    Write-Host "No file selected. Exiting Script" -ForegroundColor Red
+    Write-Log -msg "No file selected"
+    Pause
+    Exit
+}
+
+Write-Host "`nSelected ISO file: " -NoNewline -ForegroundColor Cyan; Write-Host "$isoFilePath"
+Write-Log -msg "ISO Path: $isoFilePath"
+
+# Mounting ISO File
+$mountResult = Mount-DiskImage -ImagePath "$isoFilePath" -PassThru
+if ($mountResult) {
+    $sourceDriveLetter = ($mountResult | Get-Volume).DriveLetter
+    if ($sourceDriveLetter) {
+        Write-Log -msg "Mounted ISO file to drive: $sourceDriveLetter`:"
     }
 }
 else {
-    Write-Host "No file selected. Exiting Script" -ForegroundColor Red
-    Write-Log -msg "No file selected"
-    Read-Host -Prompt "Press Enter to exit"
+    Write-Host "Failed to mount the ISO file." -ForegroundColor Red
+    Write-Log -msg "Failed to mount the ISO file."
+    Pause
     Exit
 }
 
@@ -291,35 +340,51 @@ if (-not (Test-Path $installWimPath)) {
         Write-Log -msg "install.esd found. Converting..."
         Write-Host "Details for image: " -NoNewline -ForegroundColor Cyan; Write-Host "$installEsdPath"
         try {
+            # Get image info from install.esd
             $esdInfo = Get-ImageIndex -ImagePath $installEsdPath
             if (-not $esdInfo) { 
                 Write-Host "Error: Could not retrieve image info from WIM file" -ForegroundColor Red
                 Remove-TempFiles
-                Read-Host -Prompt "Press Enter to exit"
+                Pause
                 Exit
             }
+            # Print image details from install.esd
             foreach ($image in $esdInfo) {
                 Write-Host "$($image.Index). $($image.ImageName)"
             }
-            Write-Host
-            $sourceIndex = Read-Host -Prompt "Enter the index to convert and mount"
-            Write-Log -msg "Converting and Mounting image: $sourceIndex"
+            # If wimImage is specified, find the index; else prompt user
+            if ($wimImage) {
+                $matchedImage = $esdInfo | Where-Object { $_.ImageName -ieq $wimImage }
+                if ($matchedImage) { $sourceIndex = $matchedImage.Index }
+                else { $sourceIndex = 1 }
+            }
+            else { $sourceIndex = Read-Host -Prompt "`nEnter the index to convert and mount" }
+            # Check if the index is valid, print selected "ImageIndex - ImageName"
+            $selectedImage = $esdInfo | Where-Object { $_.Index -eq [int]$sourceIndex }
+            if ($selectedImage) {
+                Write-Host "`nMounting image: " -NoNewline -ForegroundColor Cyan; Write-Host "$sourceIndex. $($selectedImage.ImageName)"
+                Write-Log -msg "Converting and Mounting image: $sourceIndex. $($selectedImage.ImageName)"
+            }
+
+            # Convert ESD to WIM
             Export-WindowsImage -SourceImagePath $installEsdPath -SourceIndex $sourceIndex -DestinationImagePath $installWimPath -CompressionType Maximum -CheckIntegrity 2>&1 | Write-Log
+            # Remove the ESD file after conversion
             Remove-Item $installEsdPath -Force
+            # Mount the converted WIM with SourceIndex 1
             Mount-WindowsImage -ImagePath $installWimPath -Index 1 -Path $installMountDir 2>&1 | Write-Log
             $sourceIndex = 1  # After conversion, the new WIM will have only one image
         }
         catch {
             Write-Host "Failed to convert or mount the ESD image: $_" -ForegroundColor Red
             Write-Log -msg "Failed to mount image: $_"
-            Read-Host -Prompt "Press Enter to exit"
+            Pause
             Exit
         }
     }
     else {
         Write-Host "Neither install.wim nor install.esd found. Make sure to mount the correct ISO" -ForegroundColor Red
         Write-Log -msg "Neither install.wim nor install.esd found"
-        Read-Host -Prompt "Press Enter to exit"
+        Pause
         Exit
     }
 }
@@ -327,25 +392,38 @@ else {
     Write-Host "`nDetails for image: " -NoNewline -ForegroundColor Cyan; Write-Host "$installWimPath"
     Write-Log -msg "Getting image info"
     try {
+        # Get image info from install.wim
         $wimInfo = Get-ImageIndex -ImagePath $installWimPath
         if (-not $wimInfo) { 
             Write-Host "Error: Could not retrieve image info from WIM file" -ForegroundColor Red
             Remove-TempFiles
-            Read-Host -Prompt "Press Enter to exit"
+            Pause
             Exit
         }
+        # Print image details from install.wim
         foreach ($image in $wimInfo) {
             Write-Host "$($image.Index). $($image.ImageName)"
         }
-        Write-Host
-        $sourceIndex = Read-Host -Prompt "Enter the index to mount"
-        Write-Log -msg "Mounting image: $sourceIndex"
+        # If wimImage is specified, find the index; else prompt user
+        if ($wimImage) {
+            $matchedImage = $wimInfo | Where-Object { $_.ImageName -ieq $wimImage }
+            if ($matchedImage) { $sourceIndex = $matchedImage.Index }
+            else { $sourceIndex = 1 }
+        }
+        else { $sourceIndex = Read-Host -Prompt "`nEnter the index to mount" }
+        # Check if the index is valid, print selected "ImageIndex - ImageName"
+        $selectedImage = $wimInfo | Where-Object { $_.Index -eq [int]$sourceIndex }
+        if ($selectedImage) {
+            Write-Host "`nMounting image: " -NoNewline -ForegroundColor Cyan; Write-Host "$sourceIndex. $($selectedImage.ImageName)"
+            Write-Log -msg "Mounting image: $sourceIndex. $($selectedImage.ImageName)"
+        }
+
         Mount-WindowsImage -ImagePath $installWimPath -Index $sourceIndex -Path $installMountDir 2>&1 | Write-Log
     }
     catch {
         Write-Host "Failed to mount the image: $_" -ForegroundColor Red
         Write-Log -msg "Failed to mount image: $_"
-        Read-Host -Prompt "Press Enter to exit"
+        Pause
         Exit
     }
 }
@@ -355,7 +433,7 @@ if (-not (Test-Path "$installMountDir\Windows")) {
     Write-Host "Error while mounting image. Try again." -ForegroundColor Red
     Write-Log -msg "Mounted image not found. Exiting"
     Remove-TempFiles
-    Read-Host -Prompt "Press Enter to exit"
+    Pause
     Exit 
 }
 
@@ -364,7 +442,7 @@ $WimDetails = Get-WimDetails -MountPath $installMountDir
 if (-not $WimDetails -or -not $WimDetails.BuildNumber -or -not $WimDetails.Language) {
     Write-Host "Error: Could not retrieve WIM information from mounted path" -ForegroundColor Red
     Remove-TempFiles
-    Read-Host -Prompt "Press Enter to exit"
+    Pause
     Exit
 }
 $langCode = $WimDetails.Language; Write-Log -msg "Detected Language: $langCode"
@@ -372,58 +450,65 @@ $buildNumber = $WimDetails.BuildNumber; Write-Log -msg "Detected Build Number: $
 
 
 Write-Host
-$AppxRemove = Get-Confirmation -Question "Remove unnecessary packages?" -DefaultValue $true -Description "Recommended: Removes bloatware apps"
-$CapabilitiesRemove = Get-Confirmation -Question "Remove unnecessary features?" -DefaultValue $true -Description "Recommended: Removes optional Windows features"
-$OnedriveRemove = Get-Confirmation -Question "Remove OneDrive?" -DefaultValue $true -Description "Optional: Completely removes OneDrive"
-$EDGERemove = Get-Confirmation -Question "Remove Microsoft Edge?" -DefaultValue $true -Description "Optional: Removes Edge browser"
-$TPMBypass = Get-Confirmation -Question "Bypass TPM check?" -DefaultValue $false -Description "Only if needed for older hardware"
-$UserFoldersEnable = Get-Confirmation -Question "Enable user folders?" -DefaultValue $true -Description "Recommended: Enables Desktop, Documents, etc."
-$ESDConvert = Get-Confirmation -Question "Compress the ISO?" -DefaultValue $false -Description "Recommended but slow: Reduces ISO file size"
+$DoAppxRemove = Get-ParameterValue -ParameterValue $AppxRemove -DefaultValue $true -Question "Remove unnecessary packages?" -Description "Recommended: Removes bloatware apps"
+$DoCapabilitiesRemove = Get-ParameterValue -ParameterValue $CapabilitiesRemove -DefaultValue $true -Question "Remove unnecessary features?" -Description "Recommended: Removes optional Windows features"
+$DoOnedriveRemove = Get-ParameterValue -ParameterValue $OnedriveRemove -DefaultValue $true -Question "Remove OneDrive?" -Description "Optional: Completely removes OneDrive"
+$DoEDGERemove = Get-ParameterValue -ParameterValue $EDGERemove -DefaultValue $true -Question "Remove Microsoft Edge?" -Description "Optional: Removes Edge browser"
+$DoTPMBypass = Get-ParameterValue -ParameterValue $TPMBypass -DefaultValue $false -Question "Bypass TPM check?" -Description "Only if needed for older hardware"
+$DoUserFoldersEnable = Get-ParameterValue -ParameterValue $UserFoldersEnable -DefaultValue $true -Question "Enable user folders?" -Description "Recommended: Enables Desktop, Documents, etc."
+$DoESDConvert = Get-ParameterValue -ParameterValue $ESDConvert -DefaultValue $false -Question "Compress the ISO?" -Description "Recommended but slow: Reduces ISO file size"
+$DoUseOscdimg = Get-ParameterValue -ParameterValue $useOscdimg -DefaultValue $true -Question "Use Oscdimg for ISO creation?" -Description "Recommended: Oscdimg is more reliable"
+
+
+
+
+
+
 
 # Comment out the package don't wanna remove
 $appxPatternsToRemove = @(
-    "Microsoft.Microsoft3DViewer*", # 3DViewer
-    "Microsoft.WindowsAlarms*", # Alarms
-    "Microsoft.BingNews*", # Bing News
-    "Microsoft.BingWeather*", # Bing Weather
-    "Clipchamp.Clipchamp*", # Clipchamp
-    "Microsoft.549981C3F5F10*", # Cortana
-    "Microsoft.Windows.DevHome*", # DevHome
-    "MicrosoftCorporationII.MicrosoftFamily*", # Family
-    "Microsoft.WindowsFeedbackHub*", # FeedbackHub
-    "Microsoft.GetHelp*", # GetHelp
-    "Microsoft.Getstarted*", # GetStarted
-    "Microsoft.WindowsCommunicationsapps*", # Mail
-    "Microsoft.WindowsMaps*", # Maps
-    "Microsoft.MixedReality.Portal*", # MixedReality
-    "Microsoft.ZuneMusic*", # Music
-    "Microsoft.MicrosoftOfficeHub*", # OfficeHub
-    "Microsoft.Office.OneNote*", # OneNote
-    "Microsoft.OutlookForWindows*", # Outlook
-    "Microsoft.MSPaint*", # Paint3D(Windows10)
-    "Microsoft.People*", # People
-    "Microsoft.YourPhone*", # Phone
-    "Microsoft.PowerAutomateDesktop*", # PowerAutomate
-    "MicrosoftCorporationII.QuickAssist*", # QuickAssist
-    "Microsoft.SkypeApp*", # Skype
-    "Microsoft.MicrosoftSolitaireCollection*", # SolitaireCollection
-    # "Microsoft.WindowsSoundRecorder*", # SoundRecorder
-    "MicrosoftTeams*", # Teams_old
-    "MSTeams*", # Teams
-    "Microsoft.Todos*", # Todos
-    "Microsoft.ZuneVideo*", # Video
-    "Microsoft.Wallet*", # Wallet
-    "Microsoft.GamingApp*", # Xbox
-    "Microsoft.XboxApp*", # Xbox(Win10)
-    "Microsoft.XboxGameOverlay*", # XboxGameOverlay
-    "Microsoft.XboxGamingOverlay*", # XboxGamingOverlay
-    "Microsoft.XboxSpeechToTextOverlay*", # XboxSpeechToTextOverlay
-    "Microsoft.Xbox.TCUI*", # XboxTCUI
-    # "Microsoft.SecHealthUI*",
-    "MicrosoftWindows.CrossDevice*", # CrossDevice
-    "Microsoft.Windows.PeopleExperienceHost*", # PeopleExperienceHost
-    "Windows.CBSPreview*",
-    "Microsoft.BingSearch*" # Bing Search
+    "Microsoft.Microsoft3DViewer*",             # 3DViewer
+    "Microsoft.WindowsAlarms*",                 # Alarms
+    "Microsoft.BingNews*",                      # Bing News
+    "Microsoft.BingWeather*",                   # Bing Weather
+    "Clipchamp.Clipchamp*",                     # Clipchamp
+    "Microsoft.549981C3F5F10*",                 # Cortana
+    "Microsoft.Windows.DevHome*",               # DevHome
+    "MicrosoftCorporationII.MicrosoftFamily*",  # Family
+    "Microsoft.WindowsFeedbackHub*",            # FeedbackHub
+    "Microsoft.GetHelp*",                       # GetHelp
+    "Microsoft.Getstarted*",                    # GetStarted
+    "Microsoft.WindowsCommunicationsapps*",     # Mail
+    "Microsoft.WindowsMaps*",                   # Maps
+    "Microsoft.MixedReality.Portal*",           # MixedReality
+    "Microsoft.ZuneMusic*",                     # Music
+    "Microsoft.MicrosoftOfficeHub*",            # OfficeHub
+    "Microsoft.Office.OneNote*",                # OneNote
+    "Microsoft.OutlookForWindows*",             # Outlook
+    "Microsoft.MSPaint*",                       # Paint3D(Windows10)
+    "Microsoft.People*",                        # People
+    "Microsoft.YourPhone*",                     # Phone
+    "Microsoft.PowerAutomateDesktop*",          # PowerAutomate
+    "MicrosoftCorporationII.QuickAssist*",      # QuickAssist
+    "Microsoft.SkypeApp*",                      # Skype
+    "Microsoft.MicrosoftSolitaireCollection*",  # SolitaireCollection
+    # "Microsoft.WindowsSoundRecorder*",          # SoundRecorder
+    "MicrosoftTeams*",                          # Teams_old
+    "MSTeams*",                                 # Teams
+    "Microsoft.Todos*",                         # Todos
+    "Microsoft.ZuneVideo*",                     # Video
+    "Microsoft.Wallet*",                        # Wallet
+    "Microsoft.GamingApp*",                     # Xbox
+    "Microsoft.XboxApp*",                       # Xbox(Win10)
+    "Microsoft.XboxGameOverlay*",               # XboxGameOverlay
+    "Microsoft.XboxGamingOverlay*",             # XboxGamingOverlay
+    "Microsoft.XboxSpeechToTextOverlay*",       # XboxSpeechToTextOverlay
+    "Microsoft.Xbox.TCUI*",                     # XboxTCUI
+    # "Microsoft.SecHealthUI*",                   # Windows Security
+    "MicrosoftWindows.CrossDevice*",            # CrossDevice
+    "Microsoft.Windows.PeopleExperienceHost*",  # PeopleExperienceHost
+    "Windows.CBSPreview*",                      # CBS Preview
+    "Microsoft.BingSearch*"                     # Bing Search
 )
 
 $capabilitiesToRemove = @(
@@ -526,14 +611,14 @@ $allPatterns = $appxPatternsToRemove + $capabilitiesToRemove + $windowsPackagesT
 $maxLength = ($allPatterns | ForEach-Object { $_.TrimEnd('*').Length } | Measure-Object -Maximum).Maximum
 $statusColumn = $maxLength + 18
 
-if ($AppxRemove) {
+if ($DoAppxRemove) {
     # Remove AppX Packages
     Remove-Packages -Patterns $appxPatternsToRemove -SectionTitle "Removing provisioned Packages:" -PackageType "AppX" -MountPath $installMountDir -TotalCount $appxPatternsToRemove.Count -StatusColumn $statusColumn
 } else {
     Write-Log -msg "Skipped Package Removal"
 }
 
-if ($CapabilitiesRemove) {
+if ($DoCapabilitiesRemove) {
     # Remove Capabilities and Windows Packages
     $capabilitiesAndPackagesTotal = $capabilitiesToRemove.Count + $windowsPackagesToRemove.Count
     Remove-Packages -Patterns $capabilitiesToRemove -SectionTitle "Removing Unnecessary Windows Features:" -PackageType "Capability" -MountPath $installMountDir -TotalCount $capabilitiesAndPackagesTotal -StatusColumn $statusColumn
@@ -564,7 +649,7 @@ function Enable-Privilege {
 }
 Enable-Privilege SeTakeOwnershipPrivilege | Out-Null
 
-if ($OnedriveRemove) {
+if ($DoOnedriveRemove) {
     # Remove OneDrive
     Write-Host ("`n[INFO] Removing OneDrive...") -ForegroundColor Cyan
     Write-Log -msg "Defining OneDrive Setup file paths"
@@ -587,7 +672,7 @@ if ($OnedriveRemove) {
     Write-Log -msg "OneDrive removal skipped"
 }
 
-if ($EDGERemove) {
+if ($DoEDGERemove) {
     # Remove EDGE
     Write-Host ("`n[INFO] Removing EDGE...") -ForegroundColor Cyan
     Write-Log -msg "Removing EDGE"
@@ -911,7 +996,7 @@ Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable TPM CHeck
 
-if ($TPMBypass) {
+if ($DoTPMBypass) {
     Write-Host ("`n[INFO] Disabling TPM Check...") -ForegroundColor Cyan
     Write-Log -msg "Disabling TPM Check"
     reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
@@ -929,6 +1014,7 @@ if ($TPMBypass) {
     reg add "HKLM\zNTUSER\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
     
     try {
+        $ProgressPreference = 'SilentlyContinue'
         $bootWimPath = Join-Path $destinationPath "sources\boot.wim"
         $bootMountDir = "$env:SystemDrive\WIDTemp\mountdir\bootWIM"
         New-Item -ItemType Directory -Path $bootMountDir 2>&1 | Write-Log
@@ -959,14 +1045,17 @@ if ($TPMBypass) {
     catch {
         Write-Log -msg "Failed to mount boot.wim: $_"
     }
-    
-} else {
+    finally {
+        $ProgressPreference = 'Continue'
+    }
+}
+else {
     Write-Log -msg "TPM Bypass cancelled"
 }
 
 # Bring back user folders
 if ($buildNumber -ge 22000) {
-    if ($UserFoldersEnable) {
+    if ($DoUserFoldersEnable) {
         Write-Host ("`n[INFO] Restoring User Folders...") -ForegroundColor Cyan
 
         reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}" /f 2>&1 | Write-Log
@@ -1023,7 +1112,7 @@ catch {
     Write-Host "Run the following code in Powershell(as admin) to unmount the broken image: "
     Write-Host "Dismount-WindowsImage -Path $installMountDir -Discard" -ForegroundColor Yellow
     Write-Log -msg "Failed to unmount image: $_"
-    Read-Host -Prompt "Press Enter to exit"
+    Pause
     Exit
 }
 
@@ -1031,7 +1120,7 @@ Write-Log -msg "Exporting image"
 $tempWimPath = "$destinationPath\sources\install_temp.wim"
 $exportSuccess = $false
 
-if ($ESDConvert) {
+if ($DoESDConvert) {
     Write-Host ("`n[INFO] Compressing image to esd...") -ForegroundColor Cyan
     try {        
         $process = Start-Process -FilePath "dism.exe" -ArgumentList "/Export-Image /SourceImageFile:`"$destinationPath\sources\install.wim`" /SourceIndex:$sourceIndex /DestinationImageFile:`"$tempWimPath`" /Compress:Recovery /CheckIntegrity" -Wait -NoNewWindow -PassThru
@@ -1073,7 +1162,7 @@ if ($exportSuccess) {
     if (-not (Test-Path "$destinationPath\sources\install.wim")) {
         Write-Host "Error: Unable to create the WIM file. Check logs for details." -ForegroundColor Red
         Write-Log -msg "Final install.wim missing"
-        Read-Host -Prompt "Press Enter to exit"
+        Pause
         Exit
     } else {
         Write-Log -msg "WIM file successfully replaced"
@@ -1081,7 +1170,7 @@ if ($exportSuccess) {
 } else {
     Write-Host "Error: Unable to export modified WIM file. Check logs for details." -ForegroundColor Yellow
     Write-Log -msg "WIM export failed, original WIM file preserved"
-    Read-Host -Prompt "Press Enter to exit"
+    Pause
     Exit
 }
 
@@ -1106,133 +1195,214 @@ try {
 }
 
 Write-Log -msg "Checking required files"
-Write-Host
-$ISOFileName = Read-Host -Prompt "Enter the name for the ISO file (without extension)"
+if ($outputiso) { $ISOFileName = [System.IO.Path]::GetFileNameWithoutExtension($outputiso) }
+else { $ISOFileName = Read-Host -Prompt "`nEnter the name for the ISO file (without extension)" }
 $ISOFile = Join-Path -Path $scriptDirectory -ChildPath "$ISOFileName.iso"
 
-if (-not (Test-Path -Path $Oscdimg)) {
-    Write-Log -msg "Oscdimg.exe not found at '$Oscdimg'"
-    Write-Host "`nOscdimg.exe not found at '$Oscdimg'." -ForegroundColor Red
-    Write-Host "`nTrying to Download oscdimg.exe..." -ForegroundColor Cyan
+if ($DoUseOscdimg) {
+    if (-not (Test-Path -Path $Oscdimg)) {
+        Write-Log -msg "Oscdimg.exe not found at '$Oscdimg'"
+        Write-Host "`nOscdimg.exe not found at '$Oscdimg'." -ForegroundColor Red
+        Write-Host "`nTrying to Download oscdimg.exe..." -ForegroundColor Cyan
 
-    # Function to check internet connection
-    function Test-InternetConnection {
-        param (
-            [int]$maxAttempts = 3,
-            [int]$retryDelay = 5,
-            [string]$hostname = "1.1.1.1", # Cloudflare DNS
-            [int]$port = 53,
-            [int]$timeout = 5000
-        )
-        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            try {
-                $client = [Net.Sockets.TcpClient]::new()
-                if ($client.ConnectAsync($hostname, $port).Wait($timeout)) {
-                    $client.Close(); return $true
-                }
-                $client.Close()
-            } catch {}
-            Write-Host "Internet connection not available, Trying in $retryDelay seconds..."
-            Start-Sleep -Seconds $retryDelay
-        }  
-        Write-Host "`nInternet connection not available after $maxAttempts attempts." -ForegroundColor Red
-        Write-Host "A working internet connection is required to download oscdimg.exe."
-        Write-Host "Check your connection and try again."
+        # Function to check internet connection
+        function Test-InternetConnection {
+            param (
+                [int]$maxAttempts = 3,
+                [int]$retryDelay = 5,
+                [string]$hostname = "1.1.1.1", # Cloudflare DNS
+                [int]$port = 53,
+                [int]$timeout = 5000
+            )
+            for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+                try {
+                    $client = [Net.Sockets.TcpClient]::new()
+                    if ($client.ConnectAsync($hostname, $port).Wait($timeout)) {
+                        $client.Close(); return $true
+                    }
+                    $client.Close()
+                } catch {}
+                Write-Host "Internet connection not available, Trying in $retryDelay seconds..."
+                Start-Sleep -Seconds $retryDelay
+            }  
+            Write-Host "`nInternet connection not available after $maxAttempts attempts." -ForegroundColor Red
+            Write-Host "A working internet connection is required to download oscdimg.exe."
+            Write-Host "Check your connection and try again."
 
-        while ($true) {
-            $internetChoice = Read-Host -Prompt "`nPress 't' to try again or 'q' to quit"
-            switch ($internetChoice.ToLower()) {
-                't' { return Test-InternetConnection @PSBoundParameters }
-                'q' {
-                    Remove-TempFiles
-                    Exit
+            while ($true) {
+                $internetChoice = Read-Host -Prompt "`nPress 't' to try again or 'q' to quit"
+                switch ($internetChoice.ToLower()) {
+                    't' { return Test-InternetConnection @PSBoundParameters }
+                    'q' {
+                        Remove-TempFiles
+                        Exit
+                    }
+                    default { Write-Host "Invalid input. Enter 't' or 'q'." }
                 }
-                default { Write-Host "Invalid input. Enter 't' or 'q'." }
             }
         }
-    }
-    
-    Test-InternetConnection
+        
+        Test-InternetConnection
 
-    # Downloading Oscdimg.exe
-    # Courtesy: https://github.com/p0w3rsh3ll/ADK
-    $ADKfolder = "$scriptDirectory\ADKDownload"
-    $CabFileName = "5d984200acbde182fd99cbfbe9bad133.cab"
-    $ExtractedFileName = "fil720cc132fbb53f3bed2e525eb77bdbc1"
+        # Downloading Oscdimg.exe
+        # Courtesy: https://github.com/p0w3rsh3ll/ADK
+        $ADKfolder = "$scriptDirectory\ADKDownload"
+        $CabFileName = "5d984200acbde182fd99cbfbe9bad133.cab"
+        $ExtractedFileName = "fil720cc132fbb53f3bed2e525eb77bdbc1"
 
-    New-Item -ItemType Directory -Path $OscdimgPath -Force 2>&1 | Write-Log
-    New-Item -ItemType Directory -Path $ADKfolder -Force 2>&1 | Write-Log
-    
-    # Resolve the URL
-    $RedirectResponse = Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2290227" -MaximumRedirection 0 -UseBasicParsing -ErrorAction SilentlyContinue
-    if ($RedirectResponse.StatusCode -eq 302) {
-        $BaseURL = $RedirectResponse.Headers.Location.TrimEnd('/') + "/"
-        $CabURL = "$BaseURL`Installers/$CabFileName"
-        $CabFilePath = "$ADKfolder\$CabFileName"
-    
-        Write-Log -msg "Downloading CAB file from: $CabURL"
-        Invoke-WebRequest -Uri $CabURL -OutFile $CabFilePath -UseBasicParsing
-    
-        # Extract the CAB file
-        Write-Log -msg "Extracting CAB file..."
-        expand.exe -F:* $CabFilePath $ADKfolder 2>&1 | Write-Log
-    
-        # Move the required file
-        $ExtractedFilePath = "$ADKfolder\$ExtractedFileName"
-        $FinalFilePath = "$OscdimgPath\oscdimg.exe"
-    
-        if (Test-Path $ExtractedFilePath) {
-            Move-Item -Path $ExtractedFilePath -Destination $FinalFilePath -Force 2>&1 | Write-Log
-            Write-Host "Oscdimg.exe downloaded successfully" -ForegroundColor Green
-            Write-Log -msg "Oscdimg.exe successfully placed in: $OscdimgPath"
+        New-Item -ItemType Directory -Path $OscdimgPath -Force 2>&1 | Write-Log
+        New-Item -ItemType Directory -Path $ADKfolder -Force 2>&1 | Write-Log
+        
+        # Resolve the URL
+        $RedirectResponse = Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2290227" -MaximumRedirection 0 -UseBasicParsing -ErrorAction SilentlyContinue
+        if ($RedirectResponse.StatusCode -eq 302) {
+            $BaseURL = $RedirectResponse.Headers.Location.TrimEnd('/') + "/"
+            $CabURL = "$BaseURL`Installers/$CabFileName"
+            $CabFilePath = "$ADKfolder\$CabFileName"
+        
+            Write-Log -msg "Downloading CAB file from: $CabURL"
+            Invoke-WebRequest -Uri $CabURL -OutFile $CabFilePath -UseBasicParsing
+        
+            # Extract the CAB file
+            Write-Log -msg "Extracting CAB file..."
+            expand.exe -F:* $CabFilePath $ADKfolder 2>&1 | Write-Log
+        
+            # Move the required file
+            $ExtractedFilePath = "$ADKfolder\$ExtractedFileName"
+            $FinalFilePath = "$OscdimgPath\oscdimg.exe"
+        
+            if (Test-Path $ExtractedFilePath) {
+                Move-Item -Path $ExtractedFilePath -Destination $FinalFilePath -Force 2>&1 | Write-Log
+                Write-Host "Oscdimg.exe downloaded successfully" -ForegroundColor Green
+                Write-Log -msg "Oscdimg.exe successfully placed in: $OscdimgPath"
+            }
+            else {
+                Write-Log -msg "Error: Extracted file not found!"
+            }
         }
         else {
-            Write-Log -msg "Error: Extracted file not found!"
+            Write-Host "Error: Failed to download Oscdimg.exe" -ForegroundColor Red
+            Write-Log -msg "Failed to resolve ADK download link. HTTP Status: $($RedirectResponse.StatusCode)"
+            Remove-TempFiles
+            Pause
+            Exit
         }
     }
-    else {
-        Write-Host "Error: Failed to download Oscdimg.exe" -ForegroundColor Red
-        Write-Log -msg "Failed to resolve ADK download link. HTTP Status: $($RedirectResponse.StatusCode)"
-        Remove-TempFiles
-        Read-Host -Prompt "Press Enter to exit"
-        Exit
-    }
-}
 
-# Generate ISO
-Write-Host ("`n[INFO] Generating ISO...") -ForegroundColor Cyan
-Write-Log -msg "Generating ISO using OSCDIMG"
-try {
-    $etfsbootPath = "$destinationPath\boot\etfsboot.com"
-    $efisysPath = "$destinationPath\efi\Microsoft\boot\efisys.bin"
-    $bootData = "2#p0,e,b`"$etfsbootPath`"#pEF,e,b`"$efisysPath`""
-    Write-Log -msg "Boot data set: $bootData"
-    
-    $oscdimgArgs = @(
-        "-bootdata:$bootData",
-        "-m",               # Ignore maximum size limit
-        "-o",               # Optimize for space
-        "-h",               # Show hidden files
-        "-u2",              # UDF 2.0
-        "-udfver102",       # UDF version 1.02
-        "-l$ISOFileName",   # Set volume label
-        "`"$destinationPath`"",
-        "`"$ISOFile`""
-    )
-    
-    Write-Log -msg "OSCDIMG command: $Oscdimg $($oscdimgArgs -join ' ')"
-    $oscdimgProcess = Start-Process -FilePath "$Oscdimg" -ArgumentList $oscdimgArgs -PassThru -Wait -NoNewWindow
-    
-    if ($oscdimgProcess.ExitCode -eq 0) {
-        Write-Host ("[OK] ISO creation successful") -ForegroundColor Green
-        Write-Log -msg "ISO successfully created with exit code 0"
-    } else {
-        Write-Host "Warning: ISO creation finished with errors" -ForegroundColor Yellow
-        Write-Log -msg "OSCDIMG exited with code: $($oscdimgProcess.ExitCode)"
+    # Generate ISO
+    Write-Host ("`n[INFO] Generating ISO...") -ForegroundColor Cyan
+    Write-Log -msg "Generating ISO using OSCDIMG"
+    try {
+        $etfsbootPath = "$destinationPath\boot\etfsboot.com"
+        $efisysPath = "$destinationPath\efi\Microsoft\boot\efisys.bin"
+        $bootData = "2#p0,e,b`"$etfsbootPath`"#pEF,e,b`"$efisysPath`""
+        Write-Log -msg "Boot data set: $bootData"
+        
+        $oscdimgArgs = @(
+            "-bootdata:$bootData",
+            "-m",               # Ignore maximum size limit
+            "-o",               # Optimize for space
+            "-h",               # Show hidden files
+            "-u2",              # UDF 2.0
+            "-udfver102",       # UDF version 1.02
+            "-l$ISOFileName",   # Set volume label
+            "`"$destinationPath`"",
+            "`"$ISOFile`""
+        )
+        
+        Write-Log -msg "OSCDIMG command: $Oscdimg $($oscdimgArgs -join ' ')"
+        $oscdimgProcess = Start-Process -FilePath "$Oscdimg" -ArgumentList $oscdimgArgs -PassThru -Wait -NoNewWindow
+        
+        if ($oscdimgProcess.ExitCode -eq 0) {
+            Write-Host ("[OK] ISO creation successful") -ForegroundColor Green
+            Write-Log -msg "ISO successfully created with exit code 0"
+        } else {
+            Write-Host "Warning: ISO creation finished with errors" -ForegroundColor Yellow
+            Write-Log -msg "OSCDIMG exited with code: $($oscdimgProcess.ExitCode)"
+        }
+    }
+    catch {
+        Write-Log -msg "Failed to generate ISO with exit code: $_"
     }
 }
-catch {
-    Write-Log -msg "Failed to generate ISO with exit code: $_"
+else {
+    Write-Host "`nPreparing ISO creation" -ForegroundColor Cyan
+    Write-Log -msg "Preparing ISO creation"
+
+    # ISOWriter class
+    # More Here: https://learn.microsoft.com/en-us/windows/win32/api/_imapi/
+    if (!('ISOWriter' -as [Type])) {
+        Add-Type -TypeDefinition @'
+        using System;
+        using System.Runtime.InteropServices;
+        using System.Runtime.InteropServices.ComTypes;
+
+        public class ISOWriter {
+            [DllImport("shlwapi.dll", CharSet = CharSet.Unicode, ExactSpelling = true, PreserveSig = false)]
+            private static extern void SHCreateStreamOnFileEx(string fileName, uint mode, uint attributes, bool create, IStream streamNull, out IStream stream);
+            public static bool Create(string filePath, ref object imageStream, int blockSize, int totalBlocks) {IStream resultStream = (IStream)imageStream, imageFile; SHCreateStreamOnFileEx(filePath, 0x1001, 0x80, true, null, out imageFile); const int bufferSize = 1024; int remainingBlocks = totalBlocks;
+                while (remainingBlocks > 0) { int blocksToWrite = Math.Min(remainingBlocks, bufferSize); resultStream.CopyTo(imageFile, blocksToWrite * blockSize, IntPtr.Zero, IntPtr.Zero); remainingBlocks -= blocksToWrite;}
+                imageFile.Commit(0);
+                return true;}
+        }
+'@
+    }
+
+    try {
+        $comObjects = @()
+
+        # Initialize boot configuration
+        $bootStream = New-Object -ComObject ADODB.Stream -Property @{ Type = 1 }
+        $comObjects += $bootStream
+        $bootStream.Open()
+        $bootStream.LoadFromFile("$destinationPath\efi\Microsoft\boot\efisys.bin")
+        # $bootStream.LoadFromFile("$destinationPath\efi\Microsoft\boot\efisys_noprompt.bin")
+
+        # Configure boot and filesystem
+        $bootOptions = New-Object -ComObject IMAPI2FS.BootOptions -Property @{
+            PlatformId = 0xEF
+            Manufacturer = "Microsoft"
+            Emulation = 0
+        }
+        $comObjects += $bootOptions
+        $bootOptions.AssignBootImage($bootStream)
+
+        $FSImage = New-Object -ComObject IMAPI2FS.MsftFileSystemImage -Property @{
+            FileSystemsToCreate = 4
+            UDFRevision = 0x102
+            FreeMediaBlocks = 0
+            VolumeName = $ISOFileName
+        }
+        $comObjects += $FSImage
+        
+        Write-Log -msg "Creating ISO structure"
+        $FSImage.Root.AddTree($destinationPath, $false)
+        $FSImage.BootImageOptions = $bootOptions
+        
+        Write-Host "`nGenerating ISO..." -ForegroundColor Cyan
+        Write-Log -msg "Generating ISO file"
+        $resultImage = $FSImage.CreateResultImage()
+        $comObjects += $resultImage
+
+        [ISOWriter]::Create($ISOFile, [ref]$resultImage.ImageStream, $resultImage.BlockSize, $resultImage.TotalBlocks)
+        
+        if ((Get-Item $ISOFile).Length -eq ($resultImage.BlockSize * $resultImage.TotalBlocks)) {
+            Write-Log -msg "ISO successfully created at: $ISOFile"
+        }
+    }
+    catch {
+        Write-Log -msg "ISO creation failed: $_" -Type Error
+    }
+    finally {
+        foreach ($obj in $comObjects) {
+            if ($obj) { 
+                while ([Runtime.InteropServices.Marshal]::ReleaseComObject($obj) -gt 0) { }
+            }
+        }
+        [GC]::Collect()
+        [GC]::WaitForPendingFinalizers()
+        Write-Host "ISO generated successfully" -ForegroundColor Green
+    }
 }
 
 # ISO verification
@@ -1277,4 +1447,4 @@ finally {
     Write-Log -msg "Script completed"
 }
 
-Read-Host -Prompt "Press Enter to exit"
+Pause

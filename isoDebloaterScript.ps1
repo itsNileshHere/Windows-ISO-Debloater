@@ -1189,8 +1189,20 @@ try {
 }
 
 Write-Log -msg "Checking required files"
-if ($outputISO) { $ISOFileName = [System.IO.Path]::GetFileNameWithoutExtension($outputISO) }
-else { $ISOFileName = Read-Host -Prompt "`nEnter the name for the ISO file (without extension)" }
+if ($outputISO) { 
+    $ISOFileName = [System.IO.Path]::GetFileNameWithoutExtension($outputISO) 
+} else { 
+    do {
+        $ISOFileName = Read-Host -Prompt "`nEnter the name for the ISO file (without extension)"
+        
+        # Check if the filename is valid
+        $isValid = $ISOFileName -match '^[^<>:"/\\|?*\x00-\x1F]+$' -and $ISOFileName.Trim().Length -gt 0
+        
+        if (-not $isValid) {
+            Write-Warning "Invalid filename! The name cannot contain <>:`"/\`|?* or control characters and cannot be empty."
+        }
+    } while (-not $isValid)
+}
 $ISOFile = Join-Path -Path $scriptDirectory -ChildPath "$ISOFileName.iso"
 
 if ($DoUseOscdimg) {

@@ -1191,6 +1191,8 @@ try {
 Write-Log -msg "Checking required files"
 if ($outputISO) { 
     $ISOFileName = [System.IO.Path]::GetFileNameWithoutExtension($outputISO) 
+    $ISOFileName = $ISOFileName -replace '[<>:"/\\|?*\x00-\x1F]', ''
+    $ISOFileName = $ISOFileName.Trim()
 } else { 
     do {
         $ISOFileName = Read-Host -Prompt "`nEnter the name for the ISO file (without extension)"

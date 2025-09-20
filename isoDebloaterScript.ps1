@@ -13,6 +13,7 @@ param(
     [ValidateSet("yes", "no")]$CapabilitiesRemove = "",
     [ValidateSet("yes", "no")]$OnedriveRemove = "",
     [ValidateSet("yes", "no")]$EDGERemove = "",
+    [ValidateSet("yes", "no")]$AIRemove = "",
     [ValidateSet("yes", "no")]$TPMBypass = "",
     [ValidateSet("yes", "no")]$UserFoldersEnable = "",
     [ValidateSet("yes", "no")]$ESDConvert = "",
@@ -77,7 +78,7 @@ $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Script started
 - Launched As: $((Get-CimInstance Win32_Process -Filter "ProcessId = $PID").CommandLine)
 - Windows Version: $($osInfo.Caption) $($osInfo.Version) (Build $($osInfo.BuildNumber))
 - System Architecture: $($osInfo.OSArchitecture)
-- Install Date: $($osInfo.ConvertToDateTime($osInfo.InstallDate).ToString('yyyy-MM-dd HH:mm:ss'))
+- Install Date: $([Management.ManagementDateTimeConverter]::ToDateTime($osInfo.InstallDate).ToString())
 - System Language: $((Get-Culture).DisplayName)
 - Default Language: $((Get-UICulture).DisplayName)
 - Windows Directory: $($env:windir)`n
@@ -515,6 +516,7 @@ $DoAppxRemove = Get-ParameterValue -ParameterValue $AppxRemove -DefaultValue $tr
 $DoCapabilitiesRemove = Get-ParameterValue -ParameterValue $CapabilitiesRemove -DefaultValue $true -Question "Remove unnecessary features?" -Description "Recommended: Removes optional Windows features"
 $DoOnedriveRemove = Get-ParameterValue -ParameterValue $OnedriveRemove -DefaultValue $true -Question "Remove OneDrive?" -Description "Optional: Completely removes OneDrive"
 $DoEDGERemove = Get-ParameterValue -ParameterValue $EDGERemove -DefaultValue $true -Question "Remove Microsoft Edge?" -Description "Optional: Removes Edge browser"
+$DoAIRemove = Get-ParameterValue -ParameterValue $AIRemove -DefaultValue $true -Question "Remove AI Components?" -Description "Optional: Removes everything related to AI"
 $DoTPMBypass = Get-ParameterValue -ParameterValue $TPMBypass -DefaultValue $false -Question "Bypass TPM check?" -Description "Only if needed for older hardware"
 $DoUserFoldersEnable = Get-ParameterValue -ParameterValue $UserFoldersEnable -DefaultValue $true -Question "Enable user folders?" -Description "Recommended: Enables Desktop, Documents, etc."
 $DoESDConvert = Get-ParameterValue -ParameterValue $ESDConvert -DefaultValue $false -Question "Compress the ISO?" -Description "Recommended but slow: Reduces ISO file size"
@@ -550,6 +552,7 @@ $appxPatternsToRemove = @(
     # "Microsoft.WindowsSoundRecorder*",          # SoundRecorder
     "MicrosoftTeams*",                          # Teams_old
     "MSTeams*",                                 # Teams
+    "Microsoft.Windows.Teams*",                 # Teams
     "Microsoft.Todos*",                         # Todos
     "Microsoft.ZuneVideo*",                     # Video
     "Microsoft.Wallet*",                        # Wallet
@@ -831,6 +834,78 @@ if ($DoEDGERemove) {
     Write-Log -msg "Edge removal cancelled"
 }
 
+if ($DoAIRemove) {
+    # Remove AI components
+    Write-Host ("`n[INFO] Removing AI components...") -ForegroundColor Cyan
+    Write-Log -msg "Removing AI components"
+    
+    # Remove AI Packages
+    $AIpatterns = @(
+        "Microsoft.Windows.Copilot*",
+        "Microsoft.Copilot*"
+    )
+    foreach ($pattern in $AIpatterns) {
+        $matchedPackages = Get-ProvisionedAppxPackage -Path $installMountDir | 
+        Where-Object { $_.PackageName -like $pattern }
+        foreach ($package in $matchedPackages) {
+            Invoke-DismFailsafe {Remove-ProvisionedAppxPackage -Path $installMountDir -PackageName $package.PackageName} {dism /image:$installMountDir /Remove-ProvisionedAppxPackage /PackageName:$($package.PackageName)}
+        }
+    }
+
+    # Disable AI DLLs
+    $dllfiles = @('System32', 'SysWOW64') | ForEach-Object {
+        Join-Path $installMountDir "Windows\$_\Windows.AI.MachineLearning.dll"
+        Join-Path $installMountDir "Windows\$_\Windows.AI.MachineLearning.Preview.dll"
+    }
+    $dllfiles | Where-Object { Test-Path $_ } | ForEach-Object {
+        Set-Ownership -Path $_ | Out-Null
+        Rename-Item $_ ($_ + ".bak") -Force 2>&1 | Write-Log
+    }
+
+    # Modifying reg keys
+    try {
+        reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
+
+        # Registry operations
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" /v "TurnOffWindowsCopilot" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "HubsSidebarEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Explorer" /v "DisableSearchBoxSuggestions" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        # Disable AI in Notepad
+        reg add "HKLM\zSOFTWARE\Policies\WindowsNotepad" /v "DisableAIFeatures" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        # Disable AI in Paint
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint" /v "DisableCocreator" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint" /v "DisableImageCreator" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        # Disable AI in other apps
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v "LetAppsAccessSystemAIModels" /t REG_DWORD /d "2" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v "LetAppsAccessGenerativeAI" /t REG_DWORD /d "2" /f 2>&1 | Write-Log
+        # Disable AI access
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\generativeAI" /v "Value" /t REG_SZ /d "Deny" /f 2>&1 | Write-Log
+        # Disable AI in Edge
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "HubsSidebarEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "CopilotPageContext" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "CopilotCDPPageContext" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        # Disable AI in Search
+        reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableClickToDo" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+
+        # Disable Recall on first logon
+        if ($buildNumber -ge 22000) {
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableRecall" /t REG_SZ /d "dism.exe /online /disable-feature /FeatureName:recall" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableAIDataAnalysis" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
+        }
+    }
+    catch {
+        Write-Log -msg "Error modifying registry: $_"
+    }
+    finally {
+        # Always unload registry hives regardless of errors
+        reg unload HKLM\zSOFTWARE 2>&1 | Write-Log
+    }
+    Write-Host ("[OK] AI Components removed") -ForegroundColor Green
+    Write-Log -msg "AI Components removal completed"
+} else {
+    Write-Log -msg "AI Components removal skipped"
+}
+
 # Registry Tweaks
 Write-Host ("`n[INFO] Loading Registry...") -ForegroundColor Cyan
 Write-Log -msg "Loading registry"
@@ -885,14 +960,6 @@ reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo"
 reg add "HKLM\zSYSTEM\ControlSet001\Services\dmwappushservice" /v "Start" /t REG_DWORD /d "4" /f 2>&1 | Write-Log
 Write-Host "[DONE]" -ForegroundColor Green
 
-# Disable Recall on first logon
-if ($buildNumber -ge 22000) {
-    Write-Host -NoNewline ("  Disabling Recall".PadRight($statusColumn))
-    reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableRecall" /t REG_SZ /d "dism.exe /online /disable-feature /FeatureName:recall" /f 2>&1 | Write-Log
-    reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableAIDataAnalysis" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
-    Write-Host "[DONE]" -ForegroundColor Green
-}
-
 # Disable Mouse Acceleration
 Write-Host -NoNewline ("  Disabling Mouse Acceleration".PadRight($statusColumn))
 reg add "HKLM\zNTUSER\Control Panel\Mouse" /v "MouseSpeed" /t REG_SZ /d "0" /f 2>&1 | Write-Log
@@ -925,6 +992,10 @@ reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Search" /v "AllowCort
 reg add "HKLM\zNTUSER\Control Panel\Desktop" /v "MenuShowDelay" /t REG_SZ /d "200" /f 2>&1 | Write-Log
 # Disable everytime MRT download through Win Update
 reg add "HKLM\zSOFTWARE\Policies\Microsoft\MRT" /v "DontOfferThroughWUAU" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+# Disable Teams Auto installation
+reg add "HKLM\zSOFTWARE\Policies\Microsoft\Teams" /v "DisableInstallation" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+# Disable Outlook
+reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Mail" /v "PreventRun" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
 Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable Bitlocker
@@ -999,21 +1070,27 @@ if ($win24H2) {
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{780E487D-C62F-4B55-AF84-0E38116AFE07}" /f 2>&1 | Write-Log
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{FD607F42-4541-418A-B812-05C32EBA8626}" /f 2>&1 | Write-Log
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{E4FED5BC-D567-4044-9642-2EDADF7DE108}" /f 2>&1 | Write-Log
+    Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\Customer Experience Improvement Program" | Out-Null
     # Program Data Updater
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{E292525C-72F1-482C-8F35-C513FAA98DAE}" /f 2>&1 | Write-Log
+    Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\Application Experience\ProgramDataUpdater" | Out-Null
     # Application Compatibility Appraiser
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{3047C197-66F1-4523-BA92-6C955FEF9E4E}" /f 2>&1 | Write-Log
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{A0C71CB8-E8F0-498A-901D-4EDA09E07FF4}" /f 2>&1 | Write-Log
+    Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser" | Out-Null
 }
 else {
     # Customer Experience Improvement Program
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{4738DE7A-BCC1-4E2D-B1B0-CADB044BFA81}" /f 2>&1 | Write-Log
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{6FAC31FA-4A85-4E64-BFD5-2154FF4594B3}" /f 2>&1 | Write-Log
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{FC931F16-B50A-472E-B061-B6F79A71EF59}" /f 2>&1 | Write-Log
+    Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\Customer Experience Improvement Program" | Out-Null
     # Program Data Updater
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{0671EB05-7D95-4153-A32B-1426B9FE61DB}" /f 2>&1 | Write-Log
+    Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\Application Experience\ProgramDataUpdater" | Out-Null
     # Application Compatibility Appraiser
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{0600DD45-FAF2-4131-A006-0B17509B9F78}" /f 2>&1 | Write-Log
+    Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser" | Out-Null
 }
 reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\Application Experience\PcaPatchDbTask" /f 2>&1 | Write-Log
 reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\Application Experience\MareBackup" /f 2>&1 | Write-Log

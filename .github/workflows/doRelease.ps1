@@ -13,6 +13,7 @@ param(
     [ValidateSet("yes", "no")]$CapabilitiesRemove = "",
     [ValidateSet("yes", "no")]$OnedriveRemove = "",
     [ValidateSet("yes", "no")]$EDGERemove = "",
+    [ValidateSet("yes", "no")]$AIRemove = "",
     [ValidateSet("yes", "no")]$TPMBypass = "",
     [ValidateSet("yes", "no")]$UserFoldersEnable = "",
     [ValidateSet("yes", "no")]$ESDConvert = "",

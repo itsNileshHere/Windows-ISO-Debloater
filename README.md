@@ -56,6 +56,7 @@ Download the latest `isoDebloater.ps1` from [here](https://github.com/itsNileshH
 -CapabilitiesRemove "yes"   # Remove optional Windows features [Default: yes]
 -OnedriveRemove "yes"       # Remove OneDrive completely [Default: yes]
 -EDGERemove "yes"           # Remove Microsoft Edge browser [Default: yes]
+-AIRemove "yes"             # Remove AI Components [Default: yes]
 -TPMBypass "no"             # Bypass TPM & hardware checks [Default: no]
 -UserFoldersEnable "yes"    # Enable user folders in Explorer [Default: yes]
 -ESDConvert "no"            # Compress ISO using ESD compression [Default: no]
@@ -72,7 +73,7 @@ Download the latest `isoDebloater.ps1` from [here](https://github.com/itsNileshH
 .\isoDebloaterScript.ps1 -isoPath "C:\path\to\windows.iso" -EDGERemove no -TPMBypass yes
 
 # Create minimal Windows installation:
-.\isoDebloaterScript.ps1 -AppxRemove yes -CapabilitiesRemove yes -OnedriveRemove yes -EDGERemove yes -ESDConvert yes
+.\isoDebloaterScript.ps1 -AppxRemove yes -CapabilitiesRemove yes -OnedriveRemove yes -EDGERemove yes -AIRemove yes -ESDConvert yes
 ```
 
 ## 📝 Step-by-Step Usage Guide

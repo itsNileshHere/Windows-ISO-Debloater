@@ -1024,7 +1024,6 @@ reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCach
 Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable TPM CHeck
-
 if ($DoTPMBypass) {
     Write-Host ("`n[INFO] Disabling TPM Check...") -ForegroundColor Cyan
     Write-Log -msg "Disabling TPM Check"
@@ -1041,7 +1040,20 @@ if ($DoTPMBypass) {
     reg add "HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
     reg add "HKLM\zNTUSER\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
     reg add "HKLM\zNTUSER\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-    
+    reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "HideUnsupportedHardwareNotifications" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+    # Clear upgrade failure records
+    reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\CompatMarkers" /f 2>&1 | Write-Log
+    reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Shared" /f 2>&1 | Write-Log
+    reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TargetVersionUpgradeExperienceIndicators" /f 2>&1 | Write-Log
+    # Simulate meeting requirements
+    reg add "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\HwReqChk" /v "HwReqChkVars" /t REG_MULTI_SZ /d "SQ_SecureBootCapable=TRUE\0SQ_SecureBootEnabled=TRUE\0SQ_TpmVersion=2\0SQ_RamMB=8192" /f 2>&1 | Write-Log
+    # Set Upgrade Eligibility
+    reg add "HKLM\zNTUSER\Software\Microsoft\PCHC" /v "UpgradeEligibility" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+
+    # Remove appraiserres.dll and replace with blank file
+    $apprdllPath = Join-Path -Path $destinationPath -ChildPath "sources\appraiserres.dll"
+    Set-OwnAndRemove -Path "$apprdllPath" | Out-Null
+    New-Item -Path $apprdllPath -ItemType File -Force 2>&1 | Write-Log
     try {
         $ProgressPreference = 'SilentlyContinue'
         $bootWimPath = Join-Path $destinationPath "sources\boot.wim"
@@ -1052,6 +1064,7 @@ if ($DoTPMBypass) {
         reg load HKLM\xDEFAULT "$bootMountDir\Windows\System32\config\default" 2>&1 | Write-Log
         reg load HKLM\xNTUSER "$bootMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
         reg load HKLM\xSYSTEM "$bootMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
+        reg load HKLM\xSOFTWARE "$bootMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
 
         reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
         reg add "HKLM\xSYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
@@ -1062,10 +1075,14 @@ if ($DoTPMBypass) {
         reg add "HKLM\xSYSTEM\Setup\MoSetup" /v "AllowUpgradesWithUnsupportedTPMOrCPU" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
         reg add "HKLM\xDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         reg add "HKLM\xDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\xSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "HideUnsupportedHardwareNotifications" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\xSOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\HwReqChk" /v "HwReqChkVars" /t REG_MULTI_SZ /d "SQ_SecureBootCapable=TRUE\0SQ_SecureBootEnabled=TRUE\0SQ_TpmVersion=2\0SQ_RamMB=8192" /f 2>&1 | Write-Log
+        reg add "HKLM\xNTUSER\Software\Microsoft\PCHC" /v "UpgradeEligibility" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
 
         reg unload HKLM\xDEFAULT 2>&1 | Write-Log
         reg unload HKLM\xNTUSER 2>&1 | Write-Log
         reg unload HKLM\xSYSTEM 2>&1 | Write-Log
+        reg unload HKLM\xSOFTWARE 2>&1 | Write-Log
 
         Invoke-DismFailsafe {Dismount-WindowsImage -Path $bootMountDir -Save} {dism /unmount-image /mountdir:$bootMountDir /commit}
         Write-Host ("[OK] TPM Bypass Successful") -ForegroundColor Green

@@ -86,7 +86,7 @@ Download the latest `isoDebloater.ps1` from [here](https://github.com/itsNileshH
 
 ## 🛠️ Advanced Customization
 
-### Packages & Features Management
+### Packages & Features
 
 Components to be removed can be customized by editing the script:
 
@@ -94,13 +94,14 @@ Components to be removed can be customized by editing the script:
 - **Windows Capabilities**: Edit the `$capabilitiesToRemove` array to manage optional Windows features
 - **Windows Packages**: Adjust the `$windowsPackagesToRemove` array to control core Windows components
 
-### Registry Tweaks
+### Tweaks
 
-The script includes numerous registry optimizations to:
+The script includes optimization tweaks to:
 - Improve system performance
 - Enhance privacy settings
 - Disable telemetry and data collection
 - Remove unnecessary UI elements
+- Remove AI components completely
 
 ## ⚙️ Technical Details
 

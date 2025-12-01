@@ -857,6 +857,7 @@ if ($DoAIRemove) {
         Join-Path $installMountDir "Windows\$_\Windows.AI.MachineLearning.dll"
         Join-Path $installMountDir "Windows\$_\Windows.AI.MachineLearning.Preview.dll"
     }
+    $dllfiles += Join-Path $installMountDir "Windows\System32\SettingsHandlers_Copilot.dll"
     $dllfiles | Where-Object { Test-Path $_ } | ForEach-Object {
         Set-Ownership -Path $_ | Out-Null
         Rename-Item $_ ($_ + ".bak") -Force 2>&1 | Write-Log
@@ -865,10 +866,10 @@ if ($DoAIRemove) {
     # Modifying reg keys
     try {
         reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
+        reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
+        reg load HKLM\zNTUSER "$installMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
 
         # Registry operations
-        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" /v "TurnOffWindowsCopilot" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "HubsSidebarEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Explorer" /v "DisableSearchBoxSuggestions" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
         # Disable AI in Notepad
         reg add "HKLM\zSOFTWARE\Policies\WindowsNotepad" /v "DisableAIFeatures" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
@@ -885,12 +886,38 @@ if ($DoAIRemove) {
         reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "CopilotPageContext" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "CopilotCDPPageContext" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         # Disable AI in Search
-        reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableClickToDo" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableClickToDo" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        # Disable WSAIFabricSvc Service
+        reg add "HKLM\zSYSTEM\CurrentControlSet\Services\WSAIFabricSvc" /v "Start" /t REG_DWORD /d "4" /f 2>&1 | Write-Log
+        # Hide AI components from Settings
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" /v "SettingsPageVisibility" /t REG_SZ /d "hide:aicomponents" /f 2>&1 | Write-Log
+        # Disable AI from Explorer
+        reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\WindowsCopilot" /v "AllowCopilotRuntime" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins" /v "CopilotPWAPin" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins" /v "RecallPin" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        # Disable Copilot and Recall system-wide
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" /v "TurnOffWindowsCopilot" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableAIDataAnalysis" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "AllowRecallEnablement" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "TurnOffSavingSnapshots" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableSettingsAgent" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\Shell\Copilot" /v "IsCopilotAvailable" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zSOFTWARE\Microsoft\Windows\Shell\Copilot" /v "CopilotDisabledReason" /t REG_SZ /d "FeatureIsDisabled" /f 2>&1 | Write-Log
+        # Disable Copilot and Recall for New Users
+        reg add "HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsCopilot" /v "TurnOffWindowsCopilot" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI" /v "DisableAIDataAnalysis" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI" /v "AllowRecallEnablement" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI" /v "TurnOffSavingSnapshots" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI" /v "DisableSettingsAgent" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Microsoft\Windows\Shell\Copilot" /v "IsCopilotAvailable" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+        reg add "HKLM\zNTUSER\Software\Microsoft\Windows\Shell\Copilot" /v "CopilotDisabledReason" /t REG_SZ /d "FeatureIsDisabled" /f 2>&1 | Write-Log
+        # Remove AI Tasks
+        reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\WindowsAI" /f 2>&1 | Write-Log
+        Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\WindowsAI" | Out-Null
 
         # Disable Recall on first logon
         if ($buildNumber -ge 22000) {
             reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableRecall" /t REG_SZ /d "dism.exe /online /disable-feature /FeatureName:recall" /f 2>&1 | Write-Log
-            reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableAIDataAnalysis" /t REG_DWORD /d 1 /f 2>&1 | Write-Log
         }
     }
     catch {
@@ -899,6 +926,8 @@ if ($DoAIRemove) {
     finally {
         # Always unload registry hives regardless of errors
         reg unload HKLM\zSOFTWARE 2>&1 | Write-Log
+        reg unload HKLM\zSYSTEM 2>&1 | Write-Log
+        reg unload HKLM\zNTUSER 2>&1 | Write-Log
     }
     Write-Host ("[OK] AI Components removed") -ForegroundColor Green
     Write-Log -msg "AI Components removal completed"
@@ -1084,6 +1113,7 @@ else {
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{4738DE7A-BCC1-4E2D-B1B0-CADB044BFA81}" /f 2>&1 | Write-Log
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{6FAC31FA-4A85-4E64-BFD5-2154FF4594B3}" /f 2>&1 | Write-Log
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{FC931F16-B50A-472E-B061-B6F79A71EF59}" /f 2>&1 | Write-Log
+    reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\Customer Experience Improvement Program" /f 2>&1 | Write-Log
     Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\Customer Experience Improvement Program" | Out-Null
     # Program Data Updater
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{0671EB05-7D95-4153-A32B-1426B9FE61DB}" /f 2>&1 | Write-Log

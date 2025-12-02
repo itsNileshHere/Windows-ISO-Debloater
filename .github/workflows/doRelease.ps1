@@ -35,10 +35,30 @@ $XmlPath = Join-Path -Path $scriptDirectory -ChildPath "autounattend.xml"
 Invoke-WebRequest -Uri $scriptUrl -OutFile $scriptPath
 Invoke-WebRequest -Uri $autounattendXmlUrl -OutFile $XmlPath
 
+# Resolve relative paths
+if ($isoPath -and -not [System.IO.Path]::IsPathRooted($isoPath)) {
+    $resolvedPath = Join-Path -Path (Get-Location).Path -ChildPath $isoPath
+    if (Test-Path $resolvedPath) {
+        $isoPath = (Get-Item $resolvedPath).FullName
+    } else {
+        $isoPath = [System.IO.Path]::GetFullPath($resolvedPath)
+    }
+}
+
+if ($outputISO -and -not [System.IO.Path]::IsPathRooted($outputISO)) {
+    $resolvedPath = Join-Path -Path (Get-Location).Path -ChildPath $outputISO
+    $outputISO = [System.IO.Path]::GetFullPath($resolvedPath)
+}
+
 $params = @()
 $PSBoundParameters.GetEnumerator() | ForEach-Object {
     if ($_.Value -is [switch] -and $_.Value) { $params += "-$($_.Key)" }
-    elseif ($_.Value -is [string] -and $_.Value) { $params += "-$($_.Key)", "`"$($_.Value)`"" }
+    elseif ($_.Value -is [string] -and $_.Value) { 
+        # Use resolved paths
+        if ($_.Key -eq 'isoPath' -and $isoPath) { $params += "-$($_.Key)", "`"$isoPath`"" }
+        elseif ($_.Key -eq 'outputISO' -and $outputISO) { $params += "-$($_.Key)", "`"$outputISO`"" }
+        else { $params += "-$($_.Key)", "`"$($_.Value)`"" }
+    }
 }
 
 $paramString = if ($params.Count -gt 0) { " $($params -join ' ')" } else { "" }

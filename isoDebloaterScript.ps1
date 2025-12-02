@@ -32,10 +32,31 @@ if ($noPrompt) { function Pause { } }
 # Administrator Privileges
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "This script must be run as Administrator. Re-launching with elevated privileges..." -ForegroundColor Yellow
+    
+    # Resolve relative paths before relaunching
+    if ($isoPath -and -not [System.IO.Path]::IsPathRooted($isoPath)) {
+        $isoPath = Join-Path -Path $PSScriptRoot -ChildPath $isoPath | Resolve-Path -ErrorAction SilentlyContinue
+        if (-not $isoPath) {
+            $isoPath = Join-Path -Path (Get-Location).Path -ChildPath $PSBoundParameters['isoPath']
+            if (Test-Path $isoPath) {
+                $isoPath = (Get-Item $isoPath).FullName
+            }
+        }
+    }
+    if ($outputISO -and -not [System.IO.Path]::IsPathRooted($outputISO)) {
+        $outputISO = Join-Path -Path (Get-Location).Path -ChildPath $outputISO
+        $outputISO = [System.IO.Path]::GetFullPath($outputISO)
+    }
+    
     $params = @()
     $PSBoundParameters.GetEnumerator() | ForEach-Object {
         if ($_.Value -is [switch] -and $_.Value) { $params += "-$($_.Key)" }
-        elseif ($_.Value -is [string] -and $_.Value) { $params += "-$($_.Key)", "`"$($_.Value)`"" }
+        elseif ($_.Value -is [string] -and $_.Value) { 
+            # Use resolved paths for isoPath and outputISO
+            if ($_.Key -eq 'isoPath' -and $isoPath) { $params += "-$($_.Key)", "`"$isoPath`"" }
+            elseif ($_.Key -eq 'outputISO' -and $outputISO) { $params += "-$($_.Key)", "`"$outputISO`"" }
+            else { $params += "-$($_.Key)", "`"$($_.Value)`"" }
+        }
     }    
     $argss = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" $($params -join ' ')"
     if (Get-Command wt -ErrorAction SilentlyContinue) { Start-Process wt "PowerShell $argss" -Verb RunAs }

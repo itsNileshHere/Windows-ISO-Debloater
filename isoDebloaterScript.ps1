@@ -16,6 +16,7 @@ param(
     [ValidateSet("yes", "no")]$AIRemove = "",
     [ValidateSet("yes", "no")]$TPMBypass = "",
     [ValidateSet("yes", "no")]$UserFoldersEnable = "",
+    [ValidateSet("yes", "no")]$DriverIntegrate = "",
     [ValidateSet("yes", "no")]$ESDConvert = "",
     [ValidateSet("yes", "no")]$useOscdimg = ""
 )
@@ -274,6 +275,43 @@ function Set-OwnAndRemove {
             } catch { Write-Log -msg "Failed to remove: $FullPath - $($_.Exception.Message)"; return $false }
         }
     } catch { Write-Log -msg "Error processing path: $Path - $($_.Exception.Message)"; return $false }
+}
+
+# Function to check internet connection
+function Test-InternetConnection {
+    param (
+        [int]$maxAttempts = 3,
+        [int]$retryDelay = 5,
+        [string]$hostname = "1.1.1.1", # Cloudflare DNS
+        [int]$port = 53,
+        [int]$timeout = 5000
+    )
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            $client = [Net.Sockets.TcpClient]::new()
+            if ($client.ConnectAsync($hostname, $port).Wait($timeout)) {
+                $client.Close(); return $true
+            }
+            $client.Close()
+        } catch {}
+        Write-Host "Internet connection not available, Trying in $retryDelay seconds..."
+        Start-Sleep -Seconds $retryDelay
+    }  
+    Write-Host "`nInternet connection not available after $maxAttempts attempts." -ForegroundColor Red
+    Write-Host "A working internet connection is required to download oscdimg.exe."
+    Write-Host "Check your connection and try again."
+
+    while ($true) {
+        $internetChoice = Read-Host -Prompt "`nPress 't' to try again or 'q' to quit"
+        switch ($internetChoice.ToLower()) {
+            't' { return Test-InternetConnection @PSBoundParameters }
+            'q' {
+                Remove-TempFiles
+                Exit
+            }
+            default { Write-Host "Invalid input. Enter 't' or 'q'." }
+        }
+    }
 }
 
 # Image Info Function
@@ -540,6 +578,7 @@ $DoEDGERemove = Get-ParameterValue -ParameterValue $EDGERemove -DefaultValue $tr
 $DoAIRemove = Get-ParameterValue -ParameterValue $AIRemove -DefaultValue $true -Question "Remove AI Components?" -Description "Optional: Removes everything related to AI"
 $DoTPMBypass = Get-ParameterValue -ParameterValue $TPMBypass -DefaultValue $false -Question "Bypass TPM check?" -Description "Only if needed for older hardware"
 $DoUserFoldersEnable = Get-ParameterValue -ParameterValue $UserFoldersEnable -DefaultValue $true -Question "Enable user folders?" -Description "Recommended: Enables Desktop, Documents, etc."
+$DoDriverIntegrate = Get-ParameterValue -ParameterValue $DriverIntegrate -DefaultValue $false -Question "Integrate Intel RST/VMD drivers?" -Description "Optional: Helps with Intel VMD storage controllers"
 $DoESDConvert = Get-ParameterValue -ParameterValue $ESDConvert -DefaultValue $false -Question "Compress the ISO?" -Description "Recommended but slow: Reduces ISO file size"
 $DoUseOscdimg = Get-ParameterValue -ParameterValue $useOscdimg -DefaultValue $true -Question "Use Oscdimg for ISO creation?" -Description "Recommended: Oscdimg is more reliable"
 
@@ -968,12 +1007,12 @@ reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1
 reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
 
 # Setting Permissions
-Set-Ownership -Registry @("zSOFTWARE\Microsoft\Windows\CurrentVersion\Communications", "zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks", "zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows", "zSOFTWARE\Microsoft\WindowsRuntime\Server\Windows.Gaming.GameBar.Internal.PresenceWriterServer")
+Set-Ownership -Registry @("zSOFTWARE\Microsoft\Windows\CurrentVersion\Communications", "zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks", "zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows", "zSOFTWARE\Microsoft\WindowsRuntime\Server\Windows.Gaming.GameBar.Internal.PresenceWriterServer") | Out-Null
 
 Write-Host ("[OK] Registry loaded") -ForegroundColor Green
 
 # Modify registry settings
-Write-Host ("`nPerforming Registry Tweaks...") -ForegroundColor Cyan
+Write-Host ("`n[INFO] Performing Registry Tweaks...") -ForegroundColor Cyan
 
 # Disable Sponsored Apps
 Write-Host -NoNewline ("  Disabling Sponsored Apps".PadRight($statusColumn))
@@ -1156,6 +1195,7 @@ Write-Host "[DONE]" -ForegroundColor Green
 # Disable TPM CHeck
 if ($DoTPMBypass) {
     Write-Host ("`n[INFO] Disabling TPM Check...") -ForegroundColor Cyan
+    Write-Host ("  This may take some time") -ForegroundColor DarkGray
     Write-Log -msg "Disabling TPM Check"
     reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
     reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
@@ -1270,6 +1310,101 @@ reg unload HKLM\zNTUSER 2>&1 | Write-Log
 reg unload HKLM\zSOFTWARE 2>&1 | Write-Log
 reg unload HKLM\zSYSTEM 2>&1 | Write-Log
 Write-Host ("[OK] Success") -ForegroundColor Green
+
+# Integrate Intel RST/VMD Drivers
+if ($DoDriverIntegrate) {
+    Write-Host ("`n[INFO] Integrating Intel RST/VMD Drivers...") -ForegroundColor Cyan
+    Write-Host ("  This may take some time") -ForegroundColor DarkGray
+    Write-Log -msg "Starting Intel RST/VMD driver integration"
+    
+    Test-InternetConnection | Out-Null
+    
+    $driverTempPath = "$env:SystemDrive\WIDTemp\drivers"
+    $driverZipPath = "$driverTempPath\drivers.zip"
+    $driverExtractPath = "$driverTempPath\extracted"
+    $DriverURL = "https://github.com/itsNileshHere/Windows-ISO-Debloater/archive/refs/heads/main.zip"
+    
+    try {
+        # Create temp directories
+        New-Item -ItemType Directory -Path $driverTempPath -Force 2>&1 | Write-Log
+        New-Item -ItemType Directory -Path $driverExtractPath -Force 2>&1 | Write-Log
+        
+        # Download drivers
+        Write-Host "  - Downloading drivers..."  -ForegroundColor DarkGray
+        $ProgressPreference = 'SilentlyContinue'
+        try {
+            Invoke-WebRequest -Uri $DriverURL -OutFile $driverZipPath -UseBasicParsing -ErrorAction Stop
+        }
+        catch {
+            Write-Host "Failed to download drivers" -ForegroundColor Red
+            Write-Log -msg "Driver download failed: $_"
+            return
+        }
+        finally {
+            $ProgressPreference = 'Continue'
+        }
+        
+        # Verify download
+        if (-not (Test-Path $driverZipPath)) {
+            Write-Host "Driver download failed - file not found" -ForegroundColor Red
+            Write-Log -msg "Driver zip file not found at: $driverZipPath"
+            return
+        }
+        Write-Log -msg "Drivers downloaded to $driverZipPath"
+        
+        # Extract drivers
+        Write-Host "  - Extracting drivers..." -ForegroundColor DarkGray
+        try {
+            Expand-Archive -Path $driverZipPath -DestinationPath $driverExtractPath -Force -ErrorAction Stop
+        }
+        catch {
+            Write-Host "Failed to extract drivers" -ForegroundColor Red
+            Write-Log -msg "Driver extraction failed: $_"
+            return
+        }
+        Write-Log -msg "Drivers extracted to $driverExtractPath"
+        
+        # Get and verify driver path
+        $driverSourcePath = Join-Path $driverExtractPath "Windows-ISO-Debloater-main\Drivers"
+        if (-not (Test-Path $driverSourcePath)) {
+            Write-Host "Driver folder not found in extracted files" -ForegroundColor Red
+            Write-Log -msg "Driver folder not found at: $driverSourcePath"
+            return
+        }
+        Write-Log -msg "Driver source path verified: $driverSourcePath"
+        
+        # Add drivers to install.wim
+        Write-Host "  - Adding drivers to install.wim..." -ForegroundColor DarkGray
+        Invoke-DismFailsafe {Add-WindowsDriver -Path $installMountDir -Driver $driverSourcePath -Recurse -ForceUnsigned} {dism /image:$installMountDir /Add-Driver /driver:$driverSourcePath /recurse /ForceUnsigned}
+        Write-Log -msg "Drivers added to install.wim"
+        
+        # Add drivers to boot.wim
+        Write-Host "  - Adding drivers to boot.wim..." -ForegroundColor DarkGray
+        $bootWimPath = Join-Path $destinationPath "sources\boot.wim"
+        $bootMountDir = "$env:SystemDrive\WIDTemp\mountdir\bootWIM"
+        New-Item -ItemType Directory -Path $bootMountDir -Force 2>&1 | Write-Log
+        
+        # Mount boot.wim, Add drivers, and unmount
+        Invoke-DismFailsafe {Mount-WindowsImage -ImagePath $bootWimPath -Index 2 -Path $bootMountDir} {dism /mount-image /imagefile:$bootWimPath /index:2 /mountdir:$bootMountDir}
+        Invoke-DismFailsafe {Add-WindowsDriver -Path $bootMountDir -Driver $driverSourcePath -Recurse -ForceUnsigned} {dism /image:$bootMountDir /Add-Driver /driver:$driverSourcePath /recurse /ForceUnsigned}
+        Invoke-DismFailsafe {Dismount-WindowsImage -Path $bootMountDir -Save} {dism /unmount-image /mountdir:$bootMountDir /commit}
+        
+        Write-Log -msg "Drivers added to boot.wim"
+        
+        Write-Host ("[OK] Driver integration completed") -ForegroundColor Green
+        Write-Log -msg "Driver integration completed"
+    }
+    catch {
+        Write-Host "Driver integration failed - skipping" -ForegroundColor Red
+        Write-Log -msg "Driver integration failed: $_"
+    }
+    finally {
+        Remove-Item -Path $driverTempPath -Recurse -Force -ErrorAction SilentlyContinue 2>&1 | Write-Log
+    }
+}
+else {
+    Write-Log -msg "Driver integration skipped"
+}
 
 # Unmounting and cleaning up the image
 Write-Host ("`n[INFO] Cleaning up image...") -ForegroundColor Cyan
@@ -1395,45 +1530,8 @@ if ($DoUseOscdimg) {
         Write-Log -msg "Oscdimg.exe not found at '$Oscdimg'"
         Write-Host "`nOscdimg.exe not found at '$Oscdimg'." -ForegroundColor Red
         Write-Host "`nTrying to Download oscdimg.exe..." -ForegroundColor Cyan
-
-        # Function to check internet connection
-        function Test-InternetConnection {
-            param (
-                [int]$maxAttempts = 3,
-                [int]$retryDelay = 5,
-                [string]$hostname = "1.1.1.1", # Cloudflare DNS
-                [int]$port = 53,
-                [int]$timeout = 5000
-            )
-            for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-                try {
-                    $client = [Net.Sockets.TcpClient]::new()
-                    if ($client.ConnectAsync($hostname, $port).Wait($timeout)) {
-                        $client.Close(); return $true
-                    }
-                    $client.Close()
-                } catch {}
-                Write-Host "Internet connection not available, Trying in $retryDelay seconds..."
-                Start-Sleep -Seconds $retryDelay
-            }  
-            Write-Host "`nInternet connection not available after $maxAttempts attempts." -ForegroundColor Red
-            Write-Host "A working internet connection is required to download oscdimg.exe."
-            Write-Host "Check your connection and try again."
-
-            while ($true) {
-                $internetChoice = Read-Host -Prompt "`nPress 't' to try again or 'q' to quit"
-                switch ($internetChoice.ToLower()) {
-                    't' { return Test-InternetConnection @PSBoundParameters }
-                    'q' {
-                        Remove-TempFiles
-                        Exit
-                    }
-                    default { Write-Host "Invalid input. Enter 't' or 'q'." }
-                }
-            }
-        }
         
-        Test-InternetConnection
+        Test-InternetConnection | Out-Null
 
         # Downloading Oscdimg.exe
         # Courtesy: https://github.com/p0w3rsh3ll/ADK

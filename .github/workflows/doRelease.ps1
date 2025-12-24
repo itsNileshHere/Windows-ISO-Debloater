@@ -16,6 +16,7 @@ param(
     [ValidateSet("yes", "no")]$AIRemove = "",
     [ValidateSet("yes", "no")]$TPMBypass = "",
     [ValidateSet("yes", "no")]$UserFoldersEnable = "",
+    [ValidateSet("yes", "no")]$DriverIntegrate = "",
     [ValidateSet("yes", "no")]$ESDConvert = "",
     [ValidateSet("yes", "no")]$useOscdimg = ""
 )

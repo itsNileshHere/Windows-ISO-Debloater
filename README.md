@@ -59,6 +59,7 @@ Download the latest `isoDebloater.ps1` from [here](https://github.com/itsNileshH
 -AIRemove "yes"             # Remove AI Components [Default: yes]
 -TPMBypass "no"             # Bypass TPM & hardware checks [Default: no]
 -UserFoldersEnable "yes"    # Enable user folders in Explorer [Default: yes]
+-DriverIntegrate "no"       # Integrate drivers from the Drivers folder [Default: no]
 -ESDConvert "no"            # Compress ISO using ESD compression [Default: no]
 -useOscdimg "yes"           # Use oscdimg.exe for ISO creation [Default: yes]
 
@@ -74,6 +75,9 @@ Download the latest `isoDebloater.ps1` from [here](https://github.com/itsNileshH
 
 # Create minimal Windows installation:
 .\isoDebloaterScript.ps1 -AppxRemove yes -CapabilitiesRemove yes -OnedriveRemove yes -EDGERemove yes -AIRemove yes -ESDConvert yes
+
+# Integrate Intel RAID/VMD drivers:
+.\isoDebloaterScript.ps1 -isoPath "C:\path\to\windows.iso" -DriverIntegrate yes
 ```
 
 ## 📝 Step-by-Step Usage Guide

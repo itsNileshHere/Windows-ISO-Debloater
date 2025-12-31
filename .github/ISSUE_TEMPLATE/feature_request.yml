@@ -1,0 +1,32 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+labels: ["enhancement"]
+body:        
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Feature Request
+      description: Provide a clear and detailed description of the feature.
+      placeholder: Describe the feature...
+    validations:
+      required: true
+          
+  - type: textarea
+    id: implementation-suggestion
+    attributes:
+      label: Implementation Suggestion
+      description: If there are ideas on how this feature could be implemented, share them here.
+      placeholder: Possible implementation details
+    validations:
+      required: false
+      
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      description: Confirm the following before submitting
+      options:
+        - label: I have verified this feature has not already been requested
+          required: true
+        - label: This feature would be useful for other users, not just me
+          required: false

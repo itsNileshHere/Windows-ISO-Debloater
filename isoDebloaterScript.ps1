@@ -1155,7 +1155,7 @@ Write-Host "[DONE]" -ForegroundColor Green
 
 # Disable Scheduled Tasks
 Write-Host -NoNewline ("  Disabling Scheduled Tasks".PadRight($statusColumn))
-$win24H2 = (Get-ItemProperty -Path 'Registry::HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name DisplayVersion).DisplayVersion -eq '24H2'
+$win24H2 = (Get-ItemProperty -Path 'Registry::HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name DisplayVersion -ErrorAction SilentlyContinue).DisplayVersion -eq '24H2'
 if ($win24H2) {
     # Customer Experience Improvement Program
     reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{780E487D-C62F-4B55-AF84-0E38116AFE07}" /f 2>&1 | Write-Log

@@ -452,12 +452,94 @@ catch { Write-Log -msg "Dismount failed: $($_.Exception.Message)" }
 # Check files availability
 $installWimPath = Join-Path $destinationPath "sources\install.wim"
 $installEsdPath = Join-Path $destinationPath "sources\install.esd"
+$installSwmPath = Join-Path $destinationPath "sources\install.swm"
 New-Item -ItemType Directory -Path $installMountDir 2>&1 | Write-Log
 
-# Handling install.wim and install.esd
+# Handling install.wim, install.esd, and install.swm (Split WIM)
 if (-not (Test-Path $installWimPath)) {
-    Write-Host "`ninstall.wim not found. Searching for install.esd..."
-    if (Test-Path $installEsdPath) {
+    # Check for Split WIM files first
+    if (Test-Path $installSwmPath) {
+        Write-Host "`ninstall.wim not found. Searching for Split WIM files (install.swm)..."
+        Write-Host "`nSplit WIM files found at " -NoNewline -ForegroundColor Cyan; Write-Host "$installSwmPath"
+        Write-Log -msg "Split WIM files found. Converting to single WIM..."
+        
+        # Find all SWM files (install.swm, install2.swm, install3.swm, etc.)
+        $swmFiles = Get-ChildItem -Path "$destinationPath\sources" -Filter "install*.swm" | Sort-Object Name
+        $swmCount = $swmFiles.Count
+        Write-Host "Found $swmCount Split WIM files:" -ForegroundColor Cyan
+        $swmFiles | ForEach-Object { Write-Host "  - $($_.Name)" }
+        Write-Log -msg "Found $swmCount SWM files: $($swmFiles.Name -join ', ')"
+        
+        Write-Host "Details for image: " -NoNewline -ForegroundColor Cyan; Write-Host "$installSwmPath"
+        try {
+            # Get image info from first SWM file
+            $swmInfo = Get-ImageIndex -ImagePath $installSwmPath
+            if (-not $swmInfo) { 
+                Write-Host "Error: Could not retrieve image info from SWM file" -ForegroundColor Red
+                Remove-TempFiles
+                Pause
+                Exit
+            }
+            # Print image details from SWM
+            foreach ($image in $swmInfo) {
+                Write-Host "$($image.Index). $($image.ImageName)"
+            }
+            # If winEdition is specified, find the index; else prompt user
+            if ($winEdition) {
+                $matchedImage = $swmInfo | Where-Object { $_.ImageName -ieq $winEdition }
+                if ($matchedImage) { $sourceIndex = $matchedImage.Index }
+                else { $sourceIndex = 1 }
+            }
+            else { $sourceIndex = Read-Host -Prompt "`nEnter the index to convert and mount" }
+            # Check if the index is valid, print selected "ImageIndex - ImageName"
+            $selectedImage = $swmInfo | Where-Object { $_.Index -eq [int]$sourceIndex }
+            if ($selectedImage) {
+                Write-Host "`nConverting and Mounting image: " -NoNewline -ForegroundColor Cyan; Write-Host "$sourceIndex. $($selectedImage.ImageName)"
+                Write-Log -msg "Converting and Mounting image: $sourceIndex. $($selectedImage.ImageName)"
+            }
+
+            # Convert SWM to WIM using DISM
+            # Pattern: /SWMFile:install*.swm means all matching SWM files
+            Write-Host "`nConverting Split WIM to single WIM file..." -ForegroundColor Cyan
+            Write-Log -msg "Starting SWM to WIM conversion"
+            $swmPattern = "$destinationPath\sources\install*.swm"
+            dism /Export-Image /SourceImageFile:"$installSwmPath" /SWMFile:"$swmPattern" /SourceIndex:$sourceIndex /DestinationImageFile:"$installWimPath" /Compress:max /CheckIntegrity 2>&1 | Write-Log
+            
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "DISM export failed. Trying alternative method..." -ForegroundColor Yellow
+                Write-Log -msg "DISM failed with exit code $LASTEXITCODE, trying alternative"
+                # Alternative: Use Export-WindowsImage with swm reference
+                Export-WindowsImage -SourceImagePath $installSwmPath -SplitImageFilePattern "$destinationPath\sources\install*.swm" -SourceIndex $sourceIndex -DestinationImagePath $installWimPath -CompressionType Maximum -CheckIntegrity 2>&1 | Write-Log
+            }
+            
+            if (-not (Test-Path $installWimPath)) {
+                Write-Host "Error: Failed to convert SWM files to WIM" -ForegroundColor Red
+                Write-Log -msg "SWM to WIM conversion failed - output file not found"
+                Remove-TempFiles
+                Pause
+                Exit
+            }
+            
+            Write-Host "SWM to WIM conversion completed successfully" -ForegroundColor Green
+            Write-Log -msg "SWM to WIM conversion completed"
+            
+            # Remove the SWM files after successful conversion
+            $swmFiles | ForEach-Object { Remove-Item $_.FullName -Force 2>&1 | Write-Log }
+            Write-Log -msg "Original SWM files removed"
+            
+            # Mount the converted WIM with SourceIndex 1
+            Invoke-DismFailsafe {Mount-WindowsImage -ImagePath $installWimPath -Index 1 -Path $installMountDir} {dism /mount-image /imagefile:$installWimPath /index:1 /mountdir:$installMountDir}
+            $sourceIndex = 1  # After conversion, the new WIM will have only one image
+        }
+        catch {
+            Write-Host "Failed to convert or mount the SWM image: $_" -ForegroundColor Red
+            Write-Log -msg "Failed to convert/mount SWM image: $_"
+            Pause
+            Exit
+        }
+    }
+    elseif (Test-Path $installEsdPath) {
+        Write-Host "`ninstall.wim not found. Searching for install.esd..."
         Write-Host "`ninstall.esd found at " -NoNewline -ForegroundColor Cyan; Write-Host "$installEsdPath"
         Write-Log -msg "install.esd found. Converting..."
         Write-Host "Details for image: " -NoNewline -ForegroundColor Cyan; Write-Host "$installEsdPath"
@@ -504,8 +586,8 @@ if (-not (Test-Path $installWimPath)) {
         }
     }
     else {
-        Write-Host "Neither install.wim nor install.esd found. Make sure to mount the correct ISO" -ForegroundColor Red
-        Write-Log -msg "Neither install.wim nor install.esd found"
+        Write-Host "Neither install.wim, install.esd, nor install.swm found. Make sure to mount the correct ISO" -ForegroundColor Red
+        Write-Log -msg "Neither install.wim, install.esd, nor install.swm found"
         Pause
         Exit
     }

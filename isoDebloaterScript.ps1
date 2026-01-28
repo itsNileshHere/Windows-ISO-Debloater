@@ -199,22 +199,42 @@ function Set-Ownership {
             $FullPath = [System.IO.Path]::GetFullPath($Path)
             if (-not (Test-Path -Path $FullPath)) { return $true }
             $IsFolder = (Get-Item $FullPath).PSIsContainer
-            $Acl = Get-Acl $FullPath
-            $Acl.SetOwner([System.Security.Principal.NTAccount]"Administrators")
-            $CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-            $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", $(if ($IsFolder) {"ContainerInherit,ObjectInherit"} else {"None"}), "None", "Allow")
-            $Acl.SetAccessRule($AccessRule)
-            Set-Acl -Path $FullPath -AclObject $Acl
-            if ($IsFolder) { Get-ChildItem -Path $FullPath -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { 
-                try { $ChildAcl = Get-Acl $_.FullName
-                    $ChildAcl.SetOwner([System.Security.Principal.NTAccount]"Administrators")
-                    $ChildAcl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", "Allow")))
-                    Set-Acl -Path $_.FullName -AclObject $ChildAcl }
-                catch {}
-            }}
-            Write-Log -msg "Set ownership for: $FullPath"
-            return $true
-        } catch { Write-Log -msg "Failed to own path: $Path - $($_.Exception.Message)"; return $false }
+            
+            # Try ACL method
+            try {
+                $Acl = Get-Acl $FullPath
+                $Acl.SetOwner([System.Security.Principal.NTAccount]"Administrators")
+                $CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+                $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", $(if ($IsFolder) {"ContainerInherit,ObjectInherit"} else {"None"}), "None", "Allow")
+                $Acl.SetAccessRule($AccessRule)
+                Set-Acl -Path $FullPath -AclObject $Acl
+                
+                if ($IsFolder) { Get-ChildItem -Path $FullPath -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { 
+                        try { $ChildAcl = Get-Acl $_.FullName
+                            $ChildAcl.SetOwner([System.Security.Principal.NTAccount]"Administrators")
+                            $ChildAcl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", "Allow")))
+                            Set-Acl -Path $_.FullName -AclObject $ChildAcl 
+                        }
+                        catch {}
+                    }
+                }
+                Write-Log -msg "[ACL] Set ownership for: $FullPath"
+                return $true
+            }
+
+            # Fallback to icals
+            catch { Write-Log -msg "ACL method failed for: $FullPath"
+                try {
+                    & icacls.exe "$FullPath" /setowner "Administrators" /T /C 2>&1 | Out-Null
+                    & icacls.exe "$FullPath" /grant "${CurrentUser}:(F)" /T /C 2>&1 | Out-Null
+                    & icacls.exe "$FullPath" /grant "Administrators:(F)" /T /C 2>&1 | Out-Null
+                    Write-Log -msg "[icacls] Set ownership for: $FullPath"
+                    return $true
+                }
+                catch { Write-Log -msg "icacls fallback failed for: $FullPath - $($_.Exception.Message)"; return $false }
+            }
+        } 
+        catch { Write-Log -msg "Failed to own path: $Path - $($_.Exception.Message)"; return $false }
     }
     if ($Registry) {
         try {

@@ -948,8 +948,9 @@ if ($buildNumber -ge 22000) {
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "CopilotCDPPageContext" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
             # Disable AI in Search
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableClickToDo" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-            # Disable WSAIFabricSvc Service
-            reg add "HKLM\zSYSTEM\CurrentControlSet\Services\WSAIFabricSvc" /v "Start" /t REG_DWORD /d "4" /f 2>&1 | Write-Log
+            # Disable WSAIFabricSvc Service on first logon
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableWSAIFabricSvc" /t REG_SZ /d 'reg add "HKLM\SYSTEM\CurrentControlSet\Services\WSAIFabricSvc" /v "Start" /t REG_DWORD /d "4" /f'
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "StopWSAIFabricSvc" /t REG_SZ /d "net stop WSAIFabricSvc"
             # Hide AI components from Settings
             reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" /v "SettingsPageVisibility" /t REG_SZ /d "hide:aicomponents" /f 2>&1 | Write-Log
             # Disable AI from Explorer

@@ -941,7 +941,11 @@ if ($buildNumber -ge 22000) {
         $dllfiles += Join-Path $installMountDir "Windows\System32\SettingsHandlers_Copilot.dll"
         $dllfiles | Where-Object { Test-Path $_ } | ForEach-Object {
             Set-Ownership -Path $_ | Out-Null
-            Rename-Item $_ ($_ + ".bak") -Force 2>&1 | Write-Log
+            try { Rename-Item $_ ($_ + ".bak") -Force -ErrorAction Stop 2>&1 | Write-Log }
+            catch {
+                Write-Log -msg "Rename failed for $_. Attempting to delete..."
+                Set-OwnAndRemove -Path $_ 2>&1 | Write-Log
+            }
         }
 
         # Modifying reg keys

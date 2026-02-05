@@ -17,7 +17,6 @@ body:
       label: Upload script_log.txt
       description: Attach the `script_log.txt` file located at `C:\scriptdir`. Drag and drop the file or paste its contents here.
       placeholder: Paste log contents or attach the file...
-      render: shell
     validations:
       required: false
       

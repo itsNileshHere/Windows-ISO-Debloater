@@ -810,6 +810,10 @@ if ($DoEDGERemove) {
     Write-Host ("`n[INFO] Removing EDGE...") -ForegroundColor Cyan
     Write-Log -msg "Removing EDGE"
     
+    # Remove Edge using DISM
+    Write-Log -msg "Executing DISM - Remove-Edge"
+    dism /image:"$installMountDir" /Remove-Edge 2>&1 | Write-Log
+    
     # Edge Patterns
     $EDGEpatterns = @(
         "Microsoft.MicrosoftEdge.Stable*",
@@ -826,6 +830,13 @@ if ($DoEDGERemove) {
             Invoke-DismFailsafe {Remove-ProvisionedAppxPackage -Path $installMountDir -PackageName $package.PackageName} {dism /image:$installMountDir /Remove-ProvisionedAppxPackage /PackageName:$($package.PackageName)}
         }
     }
+
+    # Remove WebView2 if not already removed
+    Get-WindowsCapability -Path $installMountDir | Where-Object { $_.Name -like "Edge.Webview2.Platform*" } |
+        ForEach-Object { Invoke-DismFailsafe {Remove-WindowsCapability -Path $installMountDir -Name $_.Name} {dism /image:$installMountDir /Remove-Capability /CapabilityName:$($_.Name)} }
+
+    Get-WindowsPackage -Path $installMountDir | Where-Object { $_.PackageName -like "Microsoft-Edge-WebView-FOD-Package*" } |
+        ForEach-Object { Invoke-DismFailsafe {Remove-WindowsPackage -Path $installMountDir -PackageName $_.PackageName} {dism /image:$installMountDir /Remove-Package /PackageName:$($_.PackageName)} }
 
     # Modifying reg keys
     try {

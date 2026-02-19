@@ -169,13 +169,8 @@ function Get-Confirmation {
 # Parameter Value Validation Function
 function Get-ParameterValue {
     param( [string]$ParameterValue, [bool]$DefaultValue, [string]$Question, [string]$Description )
-    # If noPrompt is enabled, use default
-    if ($noPrompt) {
-        if ($ParameterValue -ne "") { return $ParameterValue -eq "yes" }
-        else { return $DefaultValue }
-    }
-    # If noPrompt is null but param was provided, use the provided value
     if ($ParameterValue -ne "") { return $ParameterValue -eq "yes" }
+    if ($noPrompt) { return $DefaultValue }
     # If neither noPrompt nor param was provided, prompt the user
     return Get-Confirmation -Question $Question -DefaultValue $DefaultValue -Description $Description
 }
@@ -466,7 +461,7 @@ try {
     else { throw "Robocopy failed: $robocopyExitCode" }
 } catch { Write-Log -msg "Copy failed: $($_.Exception.Message)"; throw }
 
-try { if (Test-Path $isoFilePath) { Dismount-DiskImage -ImagePath $isoFilePath -EA Stop | Out-Null} }
+try { Dismount-DiskImage -ImagePath $isoFilePath -EA Stop | Out-Null}
 catch { Write-Log -msg "Dismount failed: $($_.Exception.Message)" }
 
 # Check files availability
@@ -594,7 +589,7 @@ Write-Host
 $DoAppxRemove = Get-ParameterValue -ParameterValue $AppxRemove -DefaultValue $true -Question "Remove unnecessary packages?" -Description "Recommended: Removes bloatware apps"
 $DoCapabilitiesRemove = Get-ParameterValue -ParameterValue $CapabilitiesRemove -DefaultValue $true -Question "Remove unnecessary features?" -Description "Recommended: Removes optional Windows features"
 $DoOnedriveRemove = Get-ParameterValue -ParameterValue $OnedriveRemove -DefaultValue $true -Question "Remove OneDrive?" -Description "Optional: Completely removes OneDrive"
-$DoEDGERemove = Get-ParameterValue -ParameterValue $EDGERemove -DefaultValue $true -Question "Remove Microsoft Edge?" -Description "Optional: Removes Edge browser"
+$DoEDGERemove = Get-ParameterValue -ParameterValue $EDGERemove -DefaultValue $true -Question "Remove Microsoft Edge?" -Description "Optional: Removes Edge components (Breaks Widgets)"
 $DoAIRemove = Get-ParameterValue -ParameterValue $AIRemove -DefaultValue $true -Question "Remove AI Components?" -Description "Optional: Removes everything related to AI"
 $DoTPMBypass = Get-ParameterValue -ParameterValue $TPMBypass -DefaultValue $false -Question "Bypass TPM check?" -Description "Only if needed for older hardware"
 $DoUserFoldersEnable = Get-ParameterValue -ParameterValue $UserFoldersEnable -DefaultValue $true -Question "Enable user folders?" -Description "Recommended: Enables Desktop, Documents, etc."
@@ -607,9 +602,12 @@ $appxPatternsToRemove = @(
     "Microsoft.Microsoft3DViewer*",             # 3DViewer
     "Microsoft.WindowsAlarms*",                 # Alarms
     "Microsoft.BingNews*",                      # Bing News
-    "Microsoft.BingWeather*",                   # Bing Weather
+    "Microsoft.BingSearch*",                    # Bing Search
+    "Microsoft.BingWeather*",                   # Bing Weather (Removing Breaks Widgets)
+    "Windows.CBSPreview*",                      # CBS Preview
     "Clipchamp.Clipchamp*",                     # Clipchamp
     "Microsoft.549981C3F5F10*",                 # Cortana
+    "MicrosoftWindows.CrossDevice*",            # CrossDevice
     "Microsoft.Windows.DevHome*",               # DevHome
     "MicrosoftCorporationII.MicrosoftFamily*",  # Family
     "Microsoft.WindowsFeedbackHub*",            # FeedbackHub
@@ -624,10 +622,12 @@ $appxPatternsToRemove = @(
     "Microsoft.OutlookForWindows*",             # Outlook
     "Microsoft.MSPaint*",                       # Paint3D(Windows10)
     "Microsoft.People*",                        # People
+    "Microsoft.Windows.PeopleExperienceHost*",  # PeopleExperienceHost
     "Microsoft.YourPhone*",                     # Phone
     "Microsoft.PowerAutomateDesktop*",          # PowerAutomate
     "MicrosoftCorporationII.QuickAssist*",      # QuickAssist
     "Microsoft.SkypeApp*",                      # Skype
+    "Microsoft.MicrosoftStickyNotes*",          # Sticky Notes
     "Microsoft.MicrosoftSolitaireCollection*",  # SolitaireCollection
     # "Microsoft.WindowsSoundRecorder*",          # SoundRecorder
     "MicrosoftTeams*",                          # Teams_old
@@ -640,13 +640,10 @@ $appxPatternsToRemove = @(
     "Microsoft.XboxApp*",                       # Xbox(Win10)
     "Microsoft.XboxGameOverlay*",               # XboxGameOverlay
     "Microsoft.XboxGamingOverlay*",             # XboxGamingOverlay
+    # "Microsoft.XboxIdentityProvider*",          # Xbox Identity Provider (Removing Breaks some Xbox Games)
     "Microsoft.XboxSpeechToTextOverlay*",       # XboxSpeechToTextOverlay
-    "Microsoft.Xbox.TCUI*",                     # XboxTCUI
-    # "Microsoft.SecHealthUI*",                   # Windows Security
-    "MicrosoftWindows.CrossDevice*",            # CrossDevice
-    "Microsoft.Windows.PeopleExperienceHost*",  # PeopleExperienceHost
-    "Windows.CBSPreview*",                      # CBS Preview
-    "Microsoft.BingSearch*"                     # Bing Search
+    "Microsoft.Xbox.TCUI*"                      # XboxTitleCallableUI
+    # "Microsoft.SecHealthUI*"                    # Windows Security (Caution)
 )
 
 $capabilitiesToRemove = @(
@@ -659,8 +656,9 @@ $capabilitiesToRemove = @(
     "Language.TextToSpeech~~~$langCode*",
     "Microsoft.Windows.WordPad*",
     "MathRecognizer*",
-    "Media.WindowsMediaPlayer*",
-    "Microsoft.Windows.PowerShell.ISE*"
+    "Microsoft.Windows.PowerShell.ISE*",
+    # "Hello.Face*",                                # Removing Breaks Windows-Hello
+    "Media.WindowsMediaPlayer*"
 )
 
 $windowsPackagesToRemove = @(
@@ -673,6 +671,7 @@ $windowsPackagesToRemove = @(
     "Microsoft-Windows-WordPad-FoD-Package*",
     "Microsoft-Windows-MediaPlayer-Package*",
     "Microsoft-Windows-TabletPCMath-Package*",
+    # "Microsoft-Windows-Hello-Face-Package",       # Removing Breaks Windows-Hello
     "Microsoft-Windows-StepsRecorder-Package*"
 )
 
@@ -816,7 +815,7 @@ if ($DoEDGERemove) {
         "Microsoft.MicrosoftEdge.Stable*",
         "Microsoft.MicrosoftEdgeDevToolsClient*", 
         "Microsoft.Win32WebViewHost*",
-        "MicrosoftWindows.Client.WebExperience*"
+        "MicrosoftWindows.Client.WebExperience*"        # Removing Breaks Widgets
     )
 
     # Remove Edge Packages
@@ -898,7 +897,7 @@ if ($DoEDGERemove) {
     Get-ChildItem "$installMountDir\ProgramData\Microsoft\Windows\AppRepository\Packages\Microsoft.MicrosoftEdgeDevToolsClient*" -Directory | ForEach-Object { Set-OwnAndRemove -Path $_.FullName } 2>&1 | Write-Log
     # Get-ChildItem "$installMountDir\Windows\WinSxS\*microsoft-edge-webview*" -Directory | ForEach-Object { Set-OwnAndRemove -Path $_.FullName } 2>&1 | Write-Log
     Set-OwnAndRemove -Path (Join-Path -Path $installMountDir -ChildPath 'Windows\System32\Microsoft-Edge-WebView') | Out-Null
-    Set-OwnAndRemove -Path (Join-Path -Path $installMountDir -ChildPath 'Windows\SystemApps\Microsoft.Win32WebViewHost*' | Get-Item -ErrorAction SilentlyContinue).FullName | Out-Null
+    Get-Item (Join-Path -Path $installMountDir -ChildPath 'Windows\SystemApps\Microsoft.Win32WebViewHost*') -ErrorAction SilentlyContinue | ForEach-Object { Set-OwnAndRemove -Path $_.FullName | Out-Null }
 
     # Removing EDGE-Task
     Get-ChildItem -Path "$installMountDir\Windows\System32\Tasks\MicrosoftEdge*" | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
@@ -1000,11 +999,8 @@ if ($buildNumber -ge 22000) {
             # Remove AI Tasks
             reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\WindowsAI" /f 2>&1 | Write-Log
             Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\WindowsAI" | Out-Null
-
             # Disable Recall on first logon
-            if ($buildNumber -ge 22000) {
-                reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableRecall" /t REG_SZ /d "dism.exe /online /disable-feature /FeatureName:recall" /f 2>&1 | Write-Log
-            }
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableRecall" /t REG_SZ /d "dism.exe /online /disable-feature /FeatureName:recall" /f 2>&1 | Write-Log
         }
         catch {
             Write-Log -msg "Error modifying registry: $_"
@@ -1254,7 +1250,7 @@ if ($DoTPMBypass) {
         $bootWimPath = Join-Path $destinationPath "sources\boot.wim"
         $bootMountDir = "$env:SystemDrive\WIDTemp\mountdir\bootWIM"
         New-Item -ItemType Directory -Path $bootMountDir 2>&1 | Write-Log
-        Invoke-DismFailsafe {Mount-WindowsImage -ImagePath $bootWimPath -Index 2 -Path $bootMountDir}{ {dism /mount-image /imagefile:$bootWimPath /index:2 /mountdir:$bootMountDir}}
+        Invoke-DismFailsafe {Mount-WindowsImage -ImagePath $bootWimPath -Index 2 -Path $bootMountDir} {dism /mount-image /imagefile:$bootWimPath /index:2 /mountdir:$bootMountDir}
 
         reg load HKLM\xDEFAULT "$bootMountDir\Windows\System32\config\default" 2>&1 | Write-Log
         reg load HKLM\xNTUSER "$bootMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
@@ -1288,6 +1284,7 @@ if ($DoTPMBypass) {
     }
     finally {
         $ProgressPreference = 'Continue'
+        Remove-Item -Path $bootMountDir -Recurse -Force -ErrorAction SilentlyContinue 2>&1 | Write-Log
     }
 }
 else {

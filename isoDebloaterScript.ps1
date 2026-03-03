@@ -811,6 +811,7 @@ if ($DoEDGERemove) {
     Write-Log -msg "Removing EDGE"
     
     # Remove Edge using DISM
+    Write-Host "  - Executing DISM - Remove-Edge..." -ForegroundColor DarkGray
     Write-Log -msg "Executing DISM - Remove-Edge"
     dism /image:"$installMountDir" /Remove-Edge 2>&1 | Write-Log
     
@@ -839,6 +840,8 @@ if ($DoEDGERemove) {
         ForEach-Object { Invoke-DismFailsafe {Remove-WindowsPackage -Path $installMountDir -PackageName $_.PackageName} {dism /image:$installMountDir /Remove-Package /PackageName:$($_.PackageName)} }
 
     # Modifying reg keys
+    Write-Host "  - Tweaking registry..." -ForegroundColor DarkGray
+    Write-Log -msg "Registry tweaks for EDGE"
     try {
         reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
         reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
@@ -895,6 +898,8 @@ if ($DoEDGERemove) {
     }
 
     # Remove EDGE files
+    Write-Host "  - Cleaning up shortcuts..." -ForegroundColor DarkGray
+    Write-Log -msg "Removing EDGE related files"
     Remove-Item -Path "$installMountDir\Program Files\Microsoft\Edge" -Recurse -Force 2>&1 | Write-Log
     Remove-Item -Path "$installMountDir\Program Files\Microsoft\EdgeCore" -Recurse -Force 2>&1 | Write-Log
     Remove-Item -Path "$installMountDir\Program Files\Microsoft\EdgeUpdate" -Recurse -Force 2>&1 | Write-Log
@@ -933,8 +938,17 @@ if ($buildNumber -ge 22000) {
         # Remove AI Packages
         $AIpatterns = @(
             "Microsoft.Windows.Copilot*",
-            "Microsoft.Copilot*"
+            "Microsoft.Copilot*",
+            "MicrosoftWindows.Client.AIX*",
+            "MicrosoftWindows.Client.CoPilot*",
+            "MicrosoftWindows.Client.CoreAI*",
+            "Microsoft.Windows.Ai.Copilot.Provider*",
+            "Microsoft.Edge.GameAssist*",
+            "Microsoft.Office.ActionsServer*",
+            "Microsoft.WritingAssistant*"
         )
+        Write-Host "  - Removing Provisioned AI packages..." -ForegroundColor DarkGray
+        Write-Log -msg "Removing Provisioned AI packages"
         foreach ($pattern in $AIpatterns) {
             $matchedPackages = Get-ProvisionedAppxPackage -Path $installMountDir | 
             Where-Object { $_.PackageName -like $pattern }
@@ -943,22 +957,38 @@ if ($buildNumber -ge 22000) {
             }
         }
 
-        # Disable AI DLLs
-        $dllfiles = @('System32', 'SysWOW64') | ForEach-Object {
-            Join-Path $installMountDir "Windows\$_\Windows.AI.MachineLearning.dll"
-            Join-Path $installMountDir "Windows\$_\Windows.AI.MachineLearning.Preview.dll"
-        }
-        $dllfiles += Join-Path $installMountDir "Windows\System32\SettingsHandlers_Copilot.dll"
-        $dllfiles | Where-Object { Test-Path $_ } | ForEach-Object {
-            Set-Ownership -Path $_ | Out-Null
-            try { Rename-Item $_ ($_ + ".bak") -Force -ErrorAction Stop 2>&1 | Write-Log }
-            catch {
-                Write-Log -msg "Rename failed for $_. Attempting to delete..."
-                Set-OwnAndRemove -Path $_ 2>&1 | Write-Log
+        # Removing hidden CBS packages
+        Write-Host "  - Removing hidden AI packages..." -ForegroundColor DarkGray
+        Write-Log -msg "Removing hidden CBS AI packages"
+        try {
+            reg load HKLM\zCBS_SOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
+            $cbsPackagePath = "HKLM\zCBS_SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\Packages"
+            reg query $cbsPackagePath 2>$null | Where-Object { $_ -and $_ -ne $cbsPackagePath } | ForEach-Object {
+                $pkgName = Split-Path $_.Trim() -Leaf
+                if ($pkgName -match 'AIX|Recall|Copilot|CoreAI') {
+                    reg add "$cbsPackagePath\$pkgName" /v "Visibility" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+                    reg add "$cbsPackagePath\$pkgName" /v "DefVis" /t REG_DWORD /d "2" /f 2>&1 | Write-Log
+                    reg delete "$cbsPackagePath\$pkgName\Owners" /f 2>&1 | Write-Log
+                    reg delete "$cbsPackagePath\$pkgName\Updates" /f 2>&1 | Write-Log
+                    Write-Log -msg "Unhid CBS package: $pkgName"
+                }
+            }
+            reg unload HKLM\zCBS_SOFTWARE 2>&1 | Write-Log
+            $packages = dism /image:"$installMountDir" /Get-Packages /english 2>$null
+            $packages | Where-Object { $_ -match "Package Identity\s*:\s*(.+)" } | ForEach-Object {
+                $pkgId = $matches[1].Trim()
+                if ($pkgId -match 'AIX|Recall|Copilot|CoreAI') {
+                    Invoke-DismFailsafe {Remove-WindowsPackage -Path $installMountDir -PackageName $pkgId -NoRestart} {dism /image:$installMountDir /Remove-Package /PackageName:$pkgId /NoRestart}
+                    Write-Log -msg "Removed CBS AI package: $pkgId"
+                }
             }
         }
+        catch { Write-Log -msg "CBS AI package removal error: $_" }
+        finally { reg unload HKLM\zCBS_SOFTWARE 2>&1 | Out-Null }   # If try block fails
 
         # Modifying reg keys
+        Write-Host "  - Tweaking registry..." -ForegroundColor DarkGray
+        Write-Log -msg "Registry tweaks for RemoveAI"
         try {
             reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
             reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
@@ -971,26 +1001,52 @@ if ($buildNumber -ge 22000) {
             # Disable AI in Paint
             reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint" /v "DisableCocreator" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
             reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint" /v "DisableImageCreator" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint" /v "DisableGenerativeFill" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint" /v "DisableGenerativeErase" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint" /v "DisableRemoveBackground" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
             # Disable AI in other apps
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v "LetAppsAccessSystemAIModels" /t REG_DWORD /d "2" /f 2>&1 | Write-Log
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v "LetAppsAccessGenerativeAI" /t REG_DWORD /d "2" /f 2>&1 | Write-Log
             # Disable AI access
             reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\generativeAI" /v "Value" /t REG_SZ /d "Deny" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\systemAIModels" /v "Value" /t REG_SZ /d "Deny" /f 2>&1 | Write-Log
             # Disable AI in Edge
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "HubsSidebarEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "CopilotPageContext" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "CopilotCDPPageContext" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "EdgeHistoryAISearchEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "BuiltInAIAPIsEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "AIGenThemesEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Policies\Microsoft\Edge" /v "ShareBrowsingHistoryWithCopilotSearchAllowed" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
             # Disable AI in Search
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableClickToDo" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
             # Disable WSAIFabricSvc Service on first logon
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableWSAIFabricSvc" /t REG_SZ /d 'reg add "HKLM\SYSTEM\CurrentControlSet\Services\WSAIFabricSvc" /v "Start" /t REG_DWORD /d "4" /f'
-            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "StopWSAIFabricSvc" /t REG_SZ /d "net stop WSAIFabricSvc"
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableWSAIFabricSvc" /t REG_SZ /d 'reg add "HKLM\SYSTEM\CurrentControlSet\Services\WSAIFabricSvc" /v "Start" /t REG_DWORD /d "4" /f' 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "StopWSAIFabricSvc" /t REG_SZ /d "net stop WSAIFabricSvc" 2>&1 | Write-Log
             # Hide AI components from Settings
             reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" /v "SettingsPageVisibility" /t REG_SZ /d "hide:aicomponents" /f 2>&1 | Write-Log
             # Disable AI from Explorer
             reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\WindowsCopilot" /v "AllowCopilotRuntime" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v "ShowCopilotButton" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
             reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins" /v "CopilotPWAPin" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
             reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins" /v "RecallPin" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            # Prevent Copilot PWA from auto-reinstalling
+            reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\AutoInstalledPWAs" /v "CopilotPWAPreinstallCompleted" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            # Block Copilot background access
+            reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.Copilot_8wekyb3d8bbwe" /v "Disabled" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.Copilot_8wekyb3d8bbwe" /v "DisabledByUser" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            # Remove Ask Copilot from right-click context menu
+            reg add "HKLM\zNTUSER\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked" /v "{CB3B0003-8088-4EDE-8769-8B354AB2FF8C}" /t REG_SZ /d "Ask Copilot" /f 2>&1 | Write-Log
+            # Prevent Copilot from auto-opening on large screens
+            reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings" /v "AutoOpenCopilotLargeScreens" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            # Prevent Copilot Appx from reinstalling via store policy
+            reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Appx\RemoveDefaultMicrosoftStorePackages" /v "Enabled" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Appx\RemoveDefaultMicrosoftStorePackages\Microsoft.Copilot_8wekyb3d8bbwe" /v "RemovePackage" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            # Disable Copilot in Microsoft Office apps
+            reg add "HKLM\zNTUSER\Software\Microsoft\Office\16.0\Word\Options" /v "EnableCopilot" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            reg add "HKLM\zNTUSER\Software\Microsoft\Office\16.0\Excel\Options" /v "EnableCopilot" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            reg add "HKLM\zNTUSER\Software\Microsoft\Office\16.0\OneNote\Options\Copilot" /v "CopilotEnabled" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            reg add "HKLM\zNTUSER\Software\Policies\Microsoft\office\16.0\common\privacy" /v "controllerconnectedservicesenabled" /t REG_DWORD /d "2" /f 2>&1 | Write-Log
             # Disable Copilot and Recall system-wide
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" /v "TurnOffWindowsCopilot" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v "DisableAIDataAnalysis" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
@@ -1005,6 +1061,9 @@ if ($buildNumber -ge 22000) {
             reg add "HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI" /v "AllowRecallEnablement" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
             reg add "HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI" /v "TurnOffSavingSnapshots" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
             reg add "HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI" /v "DisableSettingsAgent" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            reg add "HKLM\zNTUSER\Software\Policies\Microsoft\Windows\WindowsAI" /v "DisableClickToDo" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
+            reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v "ShowCopilotButton" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
+            reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked" /v "{CB3B0003-8088-4EDE-8769-8B354AB2FF8C}" /t REG_SZ /d "Ask Copilot" /f 2>&1 | Write-Log
             reg add "HKLM\zNTUSER\Software\Microsoft\Windows\Shell\Copilot" /v "IsCopilotAvailable" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
             reg add "HKLM\zNTUSER\Software\Microsoft\Windows\Shell\Copilot" /v "CopilotDisabledReason" /t REG_SZ /d "FeatureIsDisabled" /f 2>&1 | Write-Log
             # Remove AI Tasks
@@ -1039,7 +1098,7 @@ reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1
 reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
 
 # Setting Permissions
-Set-Ownership -Registry @("zSOFTWARE\Microsoft\Windows\CurrentVersion\Communications", "zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks", "zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows", "zSOFTWARE\Microsoft\WindowsRuntime\Server\Windows.Gaming.GameBar.Internal.PresenceWriterServer") | Out-Null
+Set-Ownership -Registry @("zSOFTWARE\Microsoft\Windows\CurrentVersion\Communications", "zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks", "zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows", "zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\WindowsAI", "zSOFTWARE\Microsoft\WindowsRuntime\Server\Windows.Gaming.GameBar.Internal.PresenceWriterServer") | Out-Null
 
 Write-Host ("[OK] Registry loaded") -ForegroundColor Green
 

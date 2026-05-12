@@ -33,7 +33,7 @@ if ($noPrompt) { function Pause { } }
 # Administrator Privileges
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "This script must be run as Administrator. Re-launching with elevated privileges..." -ForegroundColor Yellow
-    
+
     # Resolve relative paths before relaunching
     if ($isoPath -and -not [System.IO.Path]::IsPathRooted($isoPath)) {
         $isoPath = Join-Path -Path $PSScriptRoot -ChildPath $isoPath | Resolve-Path -ErrorAction SilentlyContinue
@@ -48,17 +48,17 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
         $outputISO = Join-Path -Path (Get-Location).Path -ChildPath $outputISO
         $outputISO = [System.IO.Path]::GetFullPath($outputISO)
     }
-    
+
     $params = @()
     $PSBoundParameters.GetEnumerator() | ForEach-Object {
         if ($_.Value -is [switch] -and $_.Value) { $params += "-$($_.Key)" }
-        elseif ($_.Value -is [string] -and $_.Value) { 
+        elseif ($_.Value -is [string] -and $_.Value) {
             # Use resolved paths for isoPath and outputISO
             if ($_.Key -eq 'isoPath' -and $isoPath) { $params += "-$($_.Key)", "`"$isoPath`"" }
             elseif ($_.Key -eq 'outputISO' -and $outputISO) { $params += "-$($_.Key)", "`"$outputISO`"" }
             else { $params += "-$($_.Key)", "`"$($_.Value)`"" }
         }
-    }    
+    }
     $argss = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" $($params -join ' ')"
     if (Get-Command wt -ErrorAction SilentlyContinue) { Start-Process wt "PowerShell $argss" -Verb RunAs }
     else { Start-Process PowerShell $argss -Verb RunAs }
@@ -66,12 +66,12 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 Clear-Host
 $asciiArt = @"
- _       ___           __                      _________ ____     ____       __    __            __           
+ _       ___           __                      _________ ____     ____       __    __            __
 | |     / (_)___  ____/ /___ _      _______   /  _/ ___// __ \   / __ \___  / /_  / /___  ____ _/ /____  _____
 | | /| / / / __ \/ __  / __ \ | /| / / ___/   / / \__ \/ / / /  / / / / _ \/ __ \/ / __ \/ __ `/ __/ _ \/ ___/
-| |/ |/ / / / / / /_/ / /_/ / |/ |/ (__  )  _/ / ___/ / /_/ /  / /_/ /  __/ /_/ / / /_/ / /_/ / /_/  __/ /    
-|__/|__/_/_/ /_/\__,_/\____/|__/|__/____/  /___//____/\____/  /_____/\___/_.___/_/\____/\__,_/\__/\___/_/     
-                                                                                        -By itsNileshHere                                                                                                  
+| |/ |/ / / / / / /_/ / /_/ / |/ |/ (__  )  _/ / ___/ / /_/ /  / /_/ /  __/ /_/ / / /_/ / /_/ / /_/  __/ /
+|__/|__/_/_/ /_/\__,_/\____/|__/|__/____/  /___//____/\____/  /_____/\___/_.___/_/\____/\__,_/\__/\___/_/
+                                                                                        -By itsNileshHere
 "@
 
 Write-Host $asciiArt -ForegroundColor Cyan
@@ -146,15 +146,15 @@ function Invoke-DismFailsafe {
 }
 
 # Confirmation Function
-function Get-Confirmation { 
-    param([string]$Question, [bool]$DefaultValue = $true, [string]$Description = "") 
+function Get-Confirmation {
+    param([string]$Question, [bool]$DefaultValue = $true, [string]$Description = "")
     $defaultText = if ($DefaultValue) { "Y" } else { "N" }
     $optionsText = if ($DefaultValue) { "Y/n" } else { "y/N" }
-    do { 
+    do {
         Write-Host "$Question" -ForegroundColor Cyan -NoNewline
         if ($Description) { Write-Host " - $Description" -ForegroundColor DarkGray -NoNewline }
         Write-Host " ($optionsText): " -ForegroundColor White -NoNewline
-        $answer = Read-Host 
+        $answer = Read-Host
         if ([string]::IsNullOrWhiteSpace($answer)) {
             Write-Host "Using default: $defaultText" -ForegroundColor Yellow
             return $DefaultValue
@@ -163,7 +163,7 @@ function Get-Confirmation {
         if ($answer -eq 'Y') { return $true }
         if ($answer -eq 'N') { return $false }
         Write-Warning "Invalid input. Enter 'Y' for Yes, 'N' for No, or Enter for default ($defaultText)."
-    } while ($true) 
+    } while ($true)
 }
 
 # Parameter Value Validation Function
@@ -188,13 +188,13 @@ function Remove-TempFiles {
 
 # Set Ownership Permissions
 function Set-Ownership {
-    param([string]$Path, [string[]]$Registry) 
+    param([string]$Path, [string[]]$Registry)
     if ($Path) {
         try {
             $FullPath = [System.IO.Path]::GetFullPath($Path)
             if (-not (Test-Path -Path $FullPath)) { return $true }
             $IsFolder = (Get-Item $FullPath).PSIsContainer
-            
+
             # Try ACL method
             try {
                 $Acl = Get-Acl $FullPath
@@ -203,12 +203,12 @@ function Set-Ownership {
                 $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", $(if ($IsFolder) {"ContainerInherit,ObjectInherit"} else {"None"}), "None", "Allow")
                 $Acl.SetAccessRule($AccessRule)
                 Set-Acl -Path $FullPath -AclObject $Acl
-                
-                if ($IsFolder) { Get-ChildItem -Path $FullPath -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { 
+
+                if ($IsFolder) { Get-ChildItem -Path $FullPath -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {
                         try { $ChildAcl = Get-Acl $_.FullName
                             $ChildAcl.SetOwner([System.Security.Principal.NTAccount]"Administrators")
                             $ChildAcl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($CurrentUser, "FullControl", "Allow")))
-                            Set-Acl -Path $_.FullName -AclObject $ChildAcl 
+                            Set-Acl -Path $_.FullName -AclObject $ChildAcl
                         }
                         catch {}
                     }
@@ -228,7 +228,7 @@ function Set-Ownership {
                 }
                 catch { Write-Log -msg "icacls fallback failed for: $FullPath - $($_.Exception.Message)"; return $false }
             }
-        } 
+        }
         catch { Write-Log -msg "Failed to own path: $Path - $($_.Exception.Message)"; return $false }
     }
     if ($Registry) {
@@ -311,7 +311,7 @@ function Test-InternetConnection {
         } catch {}
         Write-Host "Internet connection not available, Trying in $retryDelay seconds..."
         Start-Sleep -Seconds $retryDelay
-    }  
+    }
     Write-Host "`nInternet connection not available after $maxAttempts attempts." -ForegroundColor Red
     Write-Host "A working internet connection is required to download oscdimg.exe."
     Write-Host "Check your connection and try again."
@@ -447,12 +447,12 @@ Write-Host "`nCopying files from " -NoNewline; Write-Host "`"$sourceDrive`"" -Fo
 try {
     if (-not (Test-Path $destinationPath)) { New-Item -ItemType Directory -Path $destinationPath -Force -EA Stop | Out-Null }
     Write-Log -msg "Starting file copy operation..."
-    
+
     # Using Robocopy to copy files
     $robocopyOutput = & robocopy.exe $sourceDrive $destinationPath /E /COPY:DAT /R:3 /W:5 /MT:8 /NFL /NDL /NP 2>&1
     $robocopyExitCode = $LASTEXITCODE
     $robocopyOutput | Write-Log
-    if ($robocopyExitCode -le 7) { 
+    if ($robocopyExitCode -le 7) {
         Write-Host "Copy completed successfully." -ForegroundColor Green
         Write-Log -msg "Copy completed (Exit: $robocopyExitCode)"
         Write-Log -msg "Removing read-only attributes..."
@@ -479,7 +479,7 @@ if (-not (Test-Path $installWimPath)) {
         try {
             # Get image info from install.esd
             $esdInfo = Get-ImageIndex -ImagePath $installEsdPath
-            if (-not $esdInfo) { 
+            if (-not $esdInfo) {
                 Write-Host "Error: Could not retrieve image info from WIM file" -ForegroundColor Red
                 Remove-TempFiles
                 Pause
@@ -531,7 +531,7 @@ else {
     try {
         # Get image info from install.wim
         $wimInfo = Get-ImageIndex -ImagePath $installWimPath
-        if (-not $wimInfo) { 
+        if (-not $wimInfo) {
             Write-Host "Error: Could not retrieve image info from WIM file" -ForegroundColor Red
             Remove-TempFiles
             Pause
@@ -571,7 +571,7 @@ if (-not (Test-Path "$installMountDir\Windows")) {
     Write-Log -msg "Mounted image not found. Exiting"
     Remove-TempFiles
     Pause
-    Exit 
+    Exit
 }
 
 # Resolve Image Info
@@ -677,7 +677,7 @@ $windowsPackagesToRemove = @(
 
 function Remove-Packages {
     param( [string[]]$Patterns, [string]$SectionTitle, [string]$PackageType, [string]$MountPath, [int]$StartIndex = 1, [int]$TotalCount, [int]$StatusColumn )
-    
+
     # Package configurations
     $config = @{
         'AppX' = @{
@@ -700,11 +700,11 @@ function Remove-Packages {
         }
     }
     if ($SectionTitle) { Write-Host "`n$SectionTitle" -ForegroundColor Cyan; Write-Log -msg $SectionTitle }
-    
+
     # Validate Package Type
     $cfg = $config[$PackageType]
     $filterProp = $cfg.FilterProperty
-    
+
     for ($i = 0; $i -lt $Patterns.Count; $i++) {
         $pattern = $Patterns[$i]
         $displayName = $pattern.TrimEnd('*')
@@ -725,7 +725,7 @@ function Remove-Packages {
                     Write-Log -msg "Removing $($cfg.LogPrefix) $itemName failed: $_"
                 }
             }
-            
+
             # Show status
             $padding = $StatusColumn - $initialOutput.Length
             $spaces = ' ' * $padding
@@ -809,23 +809,23 @@ if ($DoOnedriveRemove) {
 if ($DoEDGERemove) {
     Write-Host ("`n[INFO] Removing EDGE...") -ForegroundColor Cyan
     Write-Log -msg "Removing EDGE"
-    
+
     # Remove Edge using DISM
     Write-Host "  - Executing DISM - Remove-Edge..." -ForegroundColor DarkGray
     Write-Log -msg "Executing DISM - Remove-Edge"
     dism /image:"$installMountDir" /Remove-Edge 2>&1 | Write-Log
-    
+
     # Edge Patterns
     $EDGEpatterns = @(
         "Microsoft.MicrosoftEdge.Stable*",
-        "Microsoft.MicrosoftEdgeDevToolsClient*", 
+        "Microsoft.MicrosoftEdgeDevToolsClient*",
         "Microsoft.Win32WebViewHost*",
         "MicrosoftWindows.Client.WebExperience*"        # Removing Breaks Widgets
     )
 
     # Remove Edge Packages
     foreach ($pattern in $EDGEpatterns) {
-        $matchedPackages = Get-ProvisionedAppxPackage -Path $installMountDir | 
+        $matchedPackages = Get-ProvisionedAppxPackage -Path $installMountDir |
         Where-Object { $_.PackageName -like $pattern }
         foreach ($package in $matchedPackages) {
             Invoke-DismFailsafe {Remove-ProvisionedAppxPackage -Path $installMountDir -PackageName $package.PackageName} {dism /image:$installMountDir /Remove-ProvisionedAppxPackage /PackageName:$($package.PackageName)}
@@ -847,7 +847,7 @@ if ($DoEDGERemove) {
         reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
         reg load HKLM\zNTUSER "$installMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
         reg load HKLM\zDEFAULT "$installMountDir\Windows\System32\config\default" 2>&1 | Write-Log
-          
+
         # Registry operations
         reg delete "HKLM\zSOFTWARE\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
         reg delete "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge" /f 2>&1 | Write-Log
@@ -871,7 +871,7 @@ if ($DoEDGERemove) {
         reg add "HKLM\zNTUSER\Software\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
         reg add "HKLM\zNTUSER\Software\Policies\Microsoft\MicrosoftEdge\TabPreloader" /v "AllowTabPreloading" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
         reg add "HKLM\zSOFTWARE\Policies\Microsoft\EdgeUpdate" /v "UpdateDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-        
+
         # Disable Edge updates and installation
         $registryKeys = @(
             "HKLM\zSOFTWARE\Microsoft\EdgeUpdate",
@@ -917,12 +917,12 @@ if ($DoEDGERemove) {
 
     # Removing EDGE-Task
     Get-ChildItem -Path "$installMountDir\Windows\System32\Tasks\MicrosoftEdge*" | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
-    
+
     # For Windows 10 (Legacy EDGE)
     if ($buildNumber -lt 22000) {
         Get-ChildItem -Path "$installMountDir\Windows\SystemApps\Microsoft.MicrosoftEdge*" | Where-Object { $_ } | ForEach-Object { Set-OwnAndRemove -Path $_ } 2>&1 | Write-Log
     }
-    
+
     Write-Host ("[OK] EDGE has been removed") -ForegroundColor Green
     Write-Log -msg "Microsoft Edge removal completed"
 } else {
@@ -934,7 +934,7 @@ if ($buildNumber -ge 22000) {
     if ($DoAIRemove) {
         Write-Host ("`n[INFO] Removing AI components...") -ForegroundColor Cyan
         Write-Log -msg "Removing AI components"
-        
+
         # Remove AI Packages
         $AIpatterns = @(
             "Microsoft.Windows.Copilot*",
@@ -950,7 +950,7 @@ if ($buildNumber -ge 22000) {
         Write-Host "  - Removing Provisioned AI packages..." -ForegroundColor DarkGray
         Write-Log -msg "Removing Provisioned AI packages"
         foreach ($pattern in $AIpatterns) {
-            $matchedPackages = Get-ProvisionedAppxPackage -Path $installMountDir | 
+            $matchedPackages = Get-ProvisionedAppxPackage -Path $installMountDir |
             Where-Object { $_.PackageName -like $pattern }
             foreach ($package in $matchedPackages) {
                 Invoke-DismFailsafe {Remove-ProvisionedAppxPackage -Path $installMountDir -PackageName $package.PackageName} {dism /image:$installMountDir /Remove-ProvisionedAppxPackage /PackageName:$($package.PackageName)}
@@ -1306,7 +1306,7 @@ if ($DoTPMBypass) {
     reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
     reg add "HKLM\zSYSTEM\Setup\LabConfig" /v "BypassDiskCheck" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
     reg add "HKLM\zSYSTEM\Setup\MoSetup" /v "AllowUpgradesWithUnsupportedTPMOrCPU" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
-    
+
     # Disable Unsupported Hardware Watermark
     reg add "HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
     reg add "HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
@@ -1397,7 +1397,7 @@ if ($buildNumber -ge 22000) {
         reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
         reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}" /v "HiddenByDefault" /t REG_DWORD /d "0" /f 2>&1 | Write-Log
-        
+
         Write-Host ("[OK] User Folders Restored") -ForegroundColor Green
         Write-Log -msg "User folders restored successfully"
     } else {
@@ -1419,19 +1419,19 @@ if ($DoDriverIntegrate) {
     Write-Host ("`n[INFO] Integrating Intel RST/VMD Drivers...") -ForegroundColor Cyan
     Write-Host ("  This may take some time") -ForegroundColor DarkGray
     Write-Log -msg "Starting Intel RST/VMD driver integration"
-    
+
     Test-InternetConnection | Out-Null
-    
+
     $driverTempPath = "$env:SystemDrive\WIDTemp\drivers"
     $driverZipPath = "$driverTempPath\drivers.zip"
     $driverExtractPath = "$driverTempPath\extracted"
     $DriverURL = "https://github.com/itsNileshHere/Windows-ISO-Debloater/archive/refs/heads/main.zip"
-    
+
     try {
         # Create temp directories
         New-Item -ItemType Directory -Path $driverTempPath -Force 2>&1 | Write-Log
         New-Item -ItemType Directory -Path $driverExtractPath -Force 2>&1 | Write-Log
-        
+
         # Download drivers
         Write-Host "  - Downloading drivers..."  -ForegroundColor DarkGray
         $ProgressPreference = 'SilentlyContinue'
@@ -1446,7 +1446,7 @@ if ($DoDriverIntegrate) {
         finally {
             $ProgressPreference = 'Continue'
         }
-        
+
         # Verify download
         if (-not (Test-Path $driverZipPath)) {
             Write-Host "Driver download failed - file not found" -ForegroundColor Red
@@ -1454,7 +1454,7 @@ if ($DoDriverIntegrate) {
             return
         }
         Write-Log -msg "Drivers downloaded to $driverZipPath"
-        
+
         # Extract drivers
         Write-Host "  - Extracting drivers..." -ForegroundColor DarkGray
         try {
@@ -1466,7 +1466,7 @@ if ($DoDriverIntegrate) {
             return
         }
         Write-Log -msg "Drivers extracted to $driverExtractPath"
-        
+
         # Get and verify driver path
         $driverSourcePath = Join-Path $driverExtractPath "Windows-ISO-Debloater-main\Drivers"
         if (-not (Test-Path $driverSourcePath)) {
@@ -1475,25 +1475,25 @@ if ($DoDriverIntegrate) {
             return
         }
         Write-Log -msg "Driver source path verified: $driverSourcePath"
-        
+
         # Add drivers to install.wim
         Write-Host "  - Adding drivers to install.wim..." -ForegroundColor DarkGray
         Invoke-DismFailsafe {Add-WindowsDriver -Path $installMountDir -Driver $driverSourcePath -Recurse -ForceUnsigned} {dism /image:$installMountDir /Add-Driver /driver:$driverSourcePath /recurse /ForceUnsigned}
         Write-Log -msg "Drivers added to install.wim"
-        
+
         # Add drivers to boot.wim
         Write-Host "  - Adding drivers to boot.wim..." -ForegroundColor DarkGray
         $bootWimPath = Join-Path $destinationPath "sources\boot.wim"
         $bootMountDir = "$env:SystemDrive\WIDTemp\mountdir\bootWIM"
         New-Item -ItemType Directory -Path $bootMountDir -Force 2>&1 | Write-Log
-        
+
         # Mount boot.wim, Add drivers, and unmount
         Invoke-DismFailsafe {Mount-WindowsImage -ImagePath $bootWimPath -Index 2 -Path $bootMountDir} {dism /mount-image /imagefile:$bootWimPath /index:2 /mountdir:$bootMountDir}
         Invoke-DismFailsafe {Add-WindowsDriver -Path $bootMountDir -Driver $driverSourcePath -Recurse -ForceUnsigned} {dism /image:$bootMountDir /Add-Driver /driver:$driverSourcePath /recurse /ForceUnsigned}
         Invoke-DismFailsafe {Dismount-WindowsImage -Path $bootMountDir -Save} {dism /unmount-image /mountdir:$bootMountDir /commit}
-        
+
         Write-Log -msg "Drivers added to boot.wim"
-        
+
         Write-Host ("[OK] Driver integration completed") -ForegroundColor Green
         Write-Log -msg "Driver integration completed"
     }
@@ -1537,7 +1537,7 @@ $exportSuccess = $false
 if ($DoESDConvert) {
     Write-Host ("`n[INFO] Compressing image to esd...") -ForegroundColor Cyan
     Write-Log -msg "Compressing image to esd"
-    try {        
+    try {
         $process = Start-Process -FilePath "dism.exe" -ArgumentList "/Export-Image /SourceImageFile:`"$destinationPath\sources\install.wim`" /SourceIndex:$sourceIndex /DestinationImageFile:`"$tempWimPath`" /Compress:Recovery /CheckIntegrity" -Wait -NoNewWindow -PassThru
         if ($process.ExitCode -eq 0 -and (Test-Path $tempWimPath)) {
             $exportSuccess = $true
@@ -1574,7 +1574,7 @@ else {
 if ($exportSuccess) {
     Remove-Item -Path "$destinationPath\sources\install.wim" -Force
     Move-Item -Path $tempWimPath -Destination "$destinationPath\sources\install.wim" -Force
-   
+
     if (-not (Test-Path "$destinationPath\sources\install.wim")) {
         Write-Host "Error: Unable to create the WIM file. Check logs for details." -ForegroundColor Red
         Write-Log -msg "Final install.wim missing"
@@ -1596,7 +1596,7 @@ try {
     if ($wimPath) {
         Write-Host ("[OK] WIM file validation successful: $($wimPath.Count) images found") -ForegroundColor Green
         Write-Log -msg "WIM validation passed: $($wimPath.Count) images found"
-        
+
         # Force a filesystem sync to ensure all changes are written to disk
         [System.IO.File]::OpenWrite("$destinationPath\sources\install.wim").Close()
         # Add a small delay to ensure file operations are complete
@@ -1633,7 +1633,7 @@ if ($DoUseOscdimg) {
         Write-Log -msg "Oscdimg.exe not found at '$Oscdimg'"
         Write-Host "`nOscdimg.exe not found at '$Oscdimg'." -ForegroundColor Red
         Write-Host "`nTrying to Download oscdimg.exe..." -ForegroundColor Cyan
-        
+
         Test-InternetConnection | Out-Null
 
         # Downloading Oscdimg.exe
@@ -1644,25 +1644,25 @@ if ($DoUseOscdimg) {
 
         New-Item -ItemType Directory -Path $OscdimgPath -Force 2>&1 | Write-Log
         New-Item -ItemType Directory -Path $ADKfolder -Force 2>&1 | Write-Log
-        
+
         # Resolve the URL
         $RedirectResponse = Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2290227" -MaximumRedirection 0 -UseBasicParsing -ErrorAction SilentlyContinue
         if ($RedirectResponse.StatusCode -eq 302) {
             $BaseURL = $RedirectResponse.Headers.Location.TrimEnd('/') + "/"
             $CabURL = "$BaseURL`Installers/$CabFileName"
             $CabFilePath = "$ADKfolder\$CabFileName"
-        
+
             Write-Log -msg "Downloading CAB file from: $CabURL"
             Invoke-WebRequest -Uri $CabURL -OutFile $CabFilePath -UseBasicParsing
-        
+
             # Extract the CAB file
             Write-Log -msg "Extracting CAB file..."
             expand.exe -F:* $CabFilePath $ADKfolder 2>&1 | Write-Log
-        
+
             # Move the required file
             $ExtractedFilePath = "$ADKfolder\$ExtractedFileName"
             $FinalFilePath = "$OscdimgPath\oscdimg.exe"
-        
+
             if (Test-Path $ExtractedFilePath) {
                 Move-Item -Path $ExtractedFilePath -Destination $FinalFilePath -Force 2>&1 | Write-Log
                 Write-Host "Oscdimg.exe downloaded successfully" -ForegroundColor Green
@@ -1689,7 +1689,7 @@ if ($DoUseOscdimg) {
         $efisysPath = "$destinationPath\efi\Microsoft\boot\efisys.bin"
         $bootData = "2#p0,e,b`"$etfsbootPath`"#pEF,e,b`"$efisysPath`""
         Write-Log -msg "Boot data set: $bootData"
-        
+
         $oscdimgArgs = @(
             "-bootdata:$bootData",
             "-m",               # Ignore maximum size limit
@@ -1701,10 +1701,10 @@ if ($DoUseOscdimg) {
             "`"$destinationPath`"",
             "`"$ISOFile`""
         )
-        
+
         Write-Log -msg "OSCDIMG command: $Oscdimg $($oscdimgArgs -join ' ')"
         $oscdimgProcess = Start-Process -FilePath "$Oscdimg" -ArgumentList $oscdimgArgs -PassThru -Wait -NoNewWindow
-        
+
         if ($oscdimgProcess.ExitCode -eq 0) {
             Write-Host ("[OK] ISO creation successful") -ForegroundColor Green
             Write-Log -msg "ISO successfully created with exit code 0"
@@ -1766,18 +1766,18 @@ else {
             VolumeName = $ISOFileName
         }
         $comObjects += $FSImage
-        
+
         Write-Log -msg "Creating ISO structure"
         $FSImage.Root.AddTree($destinationPath, $false)
         $FSImage.BootImageOptions = $bootOptions
-        
+
         Write-Host "[INFO] Generating ISO..." -ForegroundColor Cyan
         Write-Log -msg "Generating ISO using ISOWriter"
         $resultImage = $FSImage.CreateResultImage()
         $comObjects += $resultImage
 
         [ISOWriter]::Create($ISOFile, [ref]$resultImage.ImageStream, $resultImage.BlockSize, $resultImage.TotalBlocks) | Out-Null
-        
+
         if ((Get-Item $ISOFile).Length -eq ($resultImage.BlockSize * $resultImage.TotalBlocks)) {
             Write-Log -msg "ISO successfully created at: $ISOFile"
         }
@@ -1787,7 +1787,7 @@ else {
     }
     finally {
         foreach ($obj in $comObjects) {
-            if ($obj) { 
+            if ($obj) {
                 while ([Runtime.InteropServices.Marshal]::ReleaseComObject($obj) -gt 0) { }
             }
         }

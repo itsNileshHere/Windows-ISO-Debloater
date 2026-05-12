@@ -167,6 +167,7 @@ If you find this project helpful, consider giving it a ⭐ on GitHub!
 
 - [tiny11builder](https://github.com/ntdevlabs/tiny11builder) for inspiration and approach
 - [Winaero](https://winaero.com/) for registry optimization techniques
+- [RemoveWindowsAI](https://github.com/zoicware/RemoveWindowsAI) for AI Removal tweaks
 - Microsoft for Windows ADK tools
 
 ## ⚠️ Disclaimer

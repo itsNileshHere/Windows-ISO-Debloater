@@ -2,12 +2,15 @@
 # Author: itsNileshHere
 # Date: 2023-11-21
 # Description: A simple PSscript to modify windows iso file. For more info check README.md
+# Modified: Added config.json support, modular helpers, trap-based cleanup, hash verification
 
 param(
     [switch]$noPrompt,
+    [switch]$dryRun,
     [string]$isoPath = "",
     [string]$winEdition = "",
     [string]$outputISO = "",
+    [string]$profile = "",
     [ValidateSet("yes", "no")]$useDISM = "",
     [ValidateSet("yes", "no")]$AppxRemove = "",
     [ValidateSet("yes", "no")]$CapabilitiesRemove = "",
@@ -18,7 +21,16 @@ param(
     [ValidateSet("yes", "no")]$UserFoldersEnable = "",
     [ValidateSet("yes", "no")]$DriverIntegrate = "",
     [ValidateSet("yes", "no")]$ESDConvert = "",
-    [ValidateSet("yes", "no")]$useOscdimg = ""
+    [ValidateSet("yes", "no")]$useOscdimg = "",
+    [ValidateSet("yes", "no")]$Win11Tweaks = "",
+    [string]$Win11TweaksList = "",
+    [ValidateSet("yes", "no")]$AdvancedTweaks = "",
+    [string]$AdvancedTweaksList = "",
+    [string]$PostInstallScript = "",
+    [string]$WinGetApps = "",
+    [string]$CustomWallpaper = "",
+    [ValidateSet("yes", "no")]$CleanStartMenu = "",
+    [ValidateSet("EN", "LT", "RU")]$Language = ""
 )
 
 # If -noPrompt is used, ensure required parameters are provided
@@ -29,6 +41,14 @@ if ($noPrompt) {
 
 # Disable Pause if -noprompt is used
 if ($noPrompt) { function Pause { } }
+
+# Load helper modules
+$modulesPath = Join-Path -Path $PSScriptRoot -ChildPath "modules"
+if (Test-Path $modulesPath) {
+    Get-ChildItem -Path $modulesPath -Filter "*.ps1" | ForEach-Object {
+        . $_.FullName
+    }
+}
 
 # Administrator Privileges
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -59,9 +79,13 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
             else { $params += "-$($_.Key)", "`"$($_.Value)`"" }
         }
     }
-    $argss = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" $($params -join ' ')"
-    if (Get-Command wt -ErrorAction SilentlyContinue) { Start-Process wt "PowerShell $argss" -Verb RunAs }
-    else { Start-Process PowerShell $argss -Verb RunAs }
+    $scriptPath = $MyInvocation.MyCommand.Path
+    $argss = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" $($params -join ' ')"
+    if (Get-Command wt -ErrorAction SilentlyContinue) {
+        Start-Process wt -ArgumentList "PowerShell $argss" -Verb RunAs
+    } else {
+        Start-Process PowerShell -ArgumentList $argss -Verb RunAs
+    }
     Exit
 }
 Clear-Host
@@ -76,14 +100,45 @@ $asciiArt = @"
 
 Write-Host $asciiArt -ForegroundColor Cyan
 Start-Sleep -Milliseconds 1000
-Write-Host "Starting Windows ISO Debloater Script..." -ForegroundColor Green
+
+# Global error handler - prevents window from closing on crash
+trap {
+    Write-Host "`n`n[FATAL ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Line: $($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Red
+    if ($script:CleanupRegistered) {
+        Invoke-SafeCleanup -DestinationPath $script:CleanupPaths.DestinationPath `
+            -MountDir $script:CleanupPaths.MountDir `
+            -LogFilePath $script:CleanupPaths.LogFilePath `
+            -TranscriptPath $script:CleanupPaths.TranscriptPath `
+            -IsInterrupt
+    }
+    Write-Host "`n=== WID_DONE_FAILED === $($_.Exception.Message)" -ForegroundColor Red
+    if (-not $noPrompt) {
+        Write-Host "`nPress any key to exit..." -ForegroundColor Yellow
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    }
+    break
+}
+
+# Language selection
+if (-not $Language) {
+    if (-not $noPrompt) {
+        Write-Host "`n  Select language / Pasirinkite kalba / Vyberi yazyk" -ForegroundColor Yellow
+        $Language = Show-LanguageSelection
+    } else {
+        $Language = "EN"
+    }
+}
+Set-ScriptLanguage -Language $Language
+
+Write-Host (L "ScriptStarting") -ForegroundColor Green
 Start-Sleep -Milliseconds 800
-Write-Host "`n*Important Notes: " -ForegroundColor Yellow
-Write-Host "  1. Some prompts will appear during the process."
-Write-Host "  2. Administrative privileges are required to run this script."
-Write-Host "  3. Review the script beforehand to understand its actions."
-Write-Host "  4. To whitelist a package, open the script and comment out the corresponding Packagename."
-Write-Host "  5. Select the ISO to proceed."
+Write-Host "`n$(L 'ImportantNotes') " -ForegroundColor Yellow
+Write-Host (L "Note1")
+Write-Host (L "Note2")
+Write-Host (L "Note3")
+Write-Host (L "Note4")
+Write-Host (L "Note5")
 Start-Sleep -Milliseconds 800
 
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
@@ -94,13 +149,13 @@ $transcript = "$env:TEMP\transcript_$(Get-Random).txt"                          
 Start-Transcript $transcript -Append -ErrorAction SilentlyContinue 2>&1 | Out-Null
 
 # Get system information
-$osInfo = Get-WmiObject -Class Win32_OperatingSystem
+$osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
 $logEntry = @"
 $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Script started
 - Launched As: $((Get-CimInstance Win32_Process -Filter "ProcessId = $PID").CommandLine)
 - Windows Version: $($osInfo.Caption) $($osInfo.Version) (Build $($osInfo.BuildNumber))
 - System Architecture: $($osInfo.OSArchitecture)
-- Install Date: $([Management.ManagementDateTimeConverter]::ToDateTime($osInfo.InstallDate).ToString())
+- Install Date: $($osInfo.InstallDate.ToString())
 - System Language: $((Get-Culture).DisplayName)
 - Default Language: $((Get-UICulture).DisplayName)
 - Windows Directory: $($env:windir)`n
@@ -108,6 +163,9 @@ $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Script started
 
 # Initialize log file
 $logEntry | Out-File -FilePath $logFilePath -Append
+
+# Initialize cleanup state
+$script:CleanupRegistered = $false
 
 # Function to write logs
 function Write-Log {
@@ -177,13 +235,10 @@ function Get-ParameterValue {
 
 # Cleanup Function
 function Remove-TempFiles {
-    Remove-Item -Path $destinationPath -Recurse -Force 2>&1 | Write-Log
-    Remove-Item -Path $installMountDir -Recurse -Force 2>&1 | Write-Log
-    Remove-Item -Path "$env:SystemDrive\WIDTemp" -Recurse -Force 2>&1 | Write-Log
-    Stop-Transcript 2>&1 | Write-Log
-    $content = Get-Content $transcript | Where-Object { $_ -notmatch "^(Windows PowerShell transcript|Start time:|Username:|RunAs User:|Configuration|Host Application:|Process ID:|PS[A-Z]|BuildVersion:|CLRVersion:|WSManStackVersion:|SerializationVersion:|Transcript started|PS C:\\|^\*{10,}|End time:)" -and $_.Trim() }
-    Add-Content $logFilePath -Value ("`n" + "="*50 + "`nTerminal Snapshot - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" + "`n" + "="*50 + "`n" + ($content -join "`n"))
-    Remove-Item $transcript  -Force 2>&1 | Write-Log
+    Invoke-SafeCleanup -DestinationPath $destinationPath `
+        -MountDir $installMountDir `
+        -LogFilePath $logFilePath `
+        -TranscriptPath $transcript
 }
 
 # Set Ownership Permissions
@@ -442,6 +497,27 @@ $sourceDrive = "${sourceDriveLetter}:\"                             # Source Dri
 $destinationPath = "$env:SystemDrive\WIDTemp\winlite"               # Destination Path
 $installMountDir = "$env:SystemDrive\WIDTemp\mountdir\installWIM"   # Mount Directory
 
+# Register cleanup paths for trap handler
+Initialize-CleanupTrap -DestinationPath $destinationPath -MountDir $installMountDir -LogFilePath $logFilePath -TranscriptPath $transcript
+
+# Clean up any stale WIM mounts / leftovers from a previous interrupted run
+Clear-StaleMounts -MountDir $installMountDir
+
+# Check disk space before proceeding
+$sysDrive = $env:SystemDrive[0]
+if (-not (Get-DiskSpaceCheck -DriveLetter $sysDrive -RequiredGB 15)) {
+    if ($noPrompt) {
+        Write-Host "Low disk space - continuing anyway (noPrompt mode)" -ForegroundColor Yellow
+        Write-Log -msg "Low disk space - continuing automatically (noPrompt)"
+    } else {
+        $continueChoice = Read-Host "Continue anyway? (y/N)"
+        if ($continueChoice -ne 'y') {
+            Remove-TempFiles
+            Exit
+        }
+    }
+}
+
 # Copy Files
 Write-Host "`nCopying files from " -NoNewline; Write-Host "`"$sourceDrive`"" -ForegroundColor Yellow -NoNewline; Write-Host " to " -NoNewline; Write-Host "`"$destinationPath`"" -ForegroundColor Yellow; Write-Log -msg "Copying files from $sourceDrive to $destinationPath"
 try {
@@ -467,11 +543,12 @@ catch { Write-Log -msg "Dismount failed: $($_.Exception.Message)" }
 # Check files availability
 $installWimPath = Join-Path $destinationPath "sources\install.wim"
 $installEsdPath = Join-Path $destinationPath "sources\install.esd"
+$installSwmPath = Join-Path $destinationPath "sources\install.swm"
 New-Item -ItemType Directory -Path $installMountDir 2>&1 | Write-Log
 
-# Handling install.wim and install.esd
+# Handling install.wim, install.esd, and install.swm (split WIM)
 if (-not (Test-Path $installWimPath)) {
-    Write-Host "`ninstall.wim not found. Searching for install.esd..."
+    Write-Host "`ninstall.wim not found. Searching for alternatives..."
     if (Test-Path $installEsdPath) {
         Write-Host "`ninstall.esd found at " -NoNewline -ForegroundColor Cyan; Write-Host "$installEsdPath"
         Write-Log -msg "install.esd found. Converting..."
@@ -518,9 +595,74 @@ if (-not (Test-Path $installWimPath)) {
             Exit
         }
     }
+    elseif (Test-Path $installSwmPath) {
+        # Handle Split WIM (.swm) files
+        Write-Host "`ninstall.swm (Split WIM) found at " -NoNewline -ForegroundColor Cyan; Write-Host "$installSwmPath"
+        Write-Log -msg "install.swm found. Merging split WIM files..."
+        Write-Host "Details for image: " -NoNewline -ForegroundColor Cyan; Write-Host "$installSwmPath"
+        try {
+            # Find all SWM parts (install.swm, install2.swm, install3.swm, etc.)
+            $swmPattern = Join-Path $destinationPath "sources\install*.swm"
+            $swmFiles = Get-ChildItem -Path $swmPattern | Sort-Object Name
+            Write-Host "Found $($swmFiles.Count) SWM parts" -ForegroundColor Yellow
+            Write-Log -msg "Found $($swmFiles.Count) SWM parts: $($swmFiles.Name -join ', ')"
+
+            # Get image info from the first SWM file
+            $swmInfo = Get-ImageIndex -ImagePath $installSwmPath
+            if (-not $swmInfo) {
+                Write-Host "Error: Could not retrieve image info from SWM file" -ForegroundColor Red
+                Remove-TempFiles
+                Pause
+                Exit
+            }
+            # Print image details
+            foreach ($image in $swmInfo) {
+                Write-Host "$($image.Index). $($image.ImageName)"
+            }
+            # If winEdition is specified, find the index; else prompt user
+            if ($winEdition) {
+                $matchedImage = $swmInfo | Where-Object { $_.ImageName -ieq $winEdition }
+                if ($matchedImage) { $sourceIndex = $matchedImage.Index }
+                else { $sourceIndex = 1 }
+            }
+            else { $sourceIndex = Read-Host -Prompt "`nEnter the index to export and mount" }
+            # Check if the index is valid
+            $selectedImage = $swmInfo | Where-Object { $_.Index -eq [int]$sourceIndex }
+            if ($selectedImage) {
+                Write-Host "`nExporting image: " -NoNewline -ForegroundColor Cyan; Write-Host "$sourceIndex. $($selectedImage.ImageName)"
+                Write-Log -msg "Exporting SWM image: $sourceIndex. $($selectedImage.ImageName)"
+            }
+
+            # Export from split WIM to a single WIM file using DISM
+            # DISM supports /SWMFile parameter for reading split WIMs
+            Write-Host "  Merging SWM files into install.wim (this may take a while)..." -ForegroundColor DarkGray
+            $swmFileParam = Join-Path $destinationPath "sources\install*.swm"
+            $dismExportArgs = "/Export-Image /SourceImageFile:`"$installSwmPath`" /SWMFile:`"$swmFileParam`" /SourceIndex:$sourceIndex /DestinationImageFile:`"$installWimPath`" /Compress:max /CheckIntegrity"
+            $exportProcess = Start-Process -FilePath "dism.exe" -ArgumentList $dismExportArgs -Wait -NoNewWindow -PassThru
+            if ($exportProcess.ExitCode -ne 0) {
+                throw "DISM export from SWM failed with exit code: $($exportProcess.ExitCode)"
+            }
+            Write-Log -msg "SWM export completed successfully"
+
+            # Remove the SWM files after successful merge
+            $swmFiles | ForEach-Object { Remove-Item $_.FullName -Force }
+            Write-Log -msg "Removed original SWM files"
+
+            # Mount the merged WIM with SourceIndex 1
+            Invoke-DismFailsafe {Mount-WindowsImage -ImagePath $installWimPath -Index 1 -Path $installMountDir} {dism /mount-image /imagefile:$installWimPath /index:1 /mountdir:$installMountDir}
+            $sourceIndex = 1  # After export, the new WIM will have only one image
+            Write-Host "SWM merge and mount completed successfully." -ForegroundColor Green
+        }
+        catch {
+            Write-Host "Failed to merge or mount the SWM image: $_" -ForegroundColor Red
+            Write-Log -msg "Failed to process SWM: $_"
+            Pause
+            Exit
+        }
+    }
     else {
-        Write-Host "Neither install.wim nor install.esd found. Make sure to mount the correct ISO" -ForegroundColor Red
-        Write-Log -msg "Neither install.wim nor install.esd found"
+        Write-Host "Neither install.wim, install.esd, nor install.swm found. Make sure to mount the correct ISO" -ForegroundColor Red
+        Write-Log -msg "Neither install.wim, install.esd, nor install.swm found"
         Pause
         Exit
     }
@@ -575,6 +717,8 @@ if (-not (Test-Path "$installMountDir\Windows")) {
 }
 
 # Resolve Image Info
+# Capture initial WIM size for metrics
+$metricsData = Start-ISOMetrics -WimPath $installWimPath
 $WimDetails = Get-WimDetails -MountPath $installMountDir
 if (-not $WimDetails -or -not $WimDetails.BuildNumber -or -not $WimDetails.Language) {
     Write-Host "Error: Could not retrieve WIM information from mounted path" -ForegroundColor Red
@@ -584,6 +728,34 @@ if (-not $WimDetails -or -not $WimDetails.BuildNumber -or -not $WimDetails.Langu
 }
 $langCode = $WimDetails.Language; Write-Log -msg "Detected Language: $langCode"
 $buildNumber = $WimDetails.BuildNumber; Write-Log -msg "Detected Build Number: $buildNumber"
+
+# Load configuration from config.json
+$configPath = Join-Path -Path $scriptDirectory -ChildPath "config.json"
+$scriptConfig = Get-ScriptConfig -ConfigPath $configPath -LangCode $langCode
+
+# Apply profile if specified
+if ($profile -and $scriptConfig) {
+    $profileSettings = Get-ProfileSettings -Config $scriptConfig -ProfileName $profile
+    if ($profileSettings) {
+        Write-Host "`nApplying profile: $profile" -ForegroundColor Green
+        Write-Log -msg "Applying profile: $profile"
+        # Override parameters from profile (only if not explicitly set via CLI)
+        if (-not $AppxRemove) { $AppxRemove = if ($profileSettings.AppxRemove) { "yes" } else { "no" } }
+        if (-not $CapabilitiesRemove) { $CapabilitiesRemove = if ($profileSettings.CapabilitiesRemove) { "yes" } else { "no" } }
+        if (-not $OnedriveRemove) { $OnedriveRemove = if ($profileSettings.OnedriveRemove) { "yes" } else { "no" } }
+        if (-not $EDGERemove) { $EDGERemove = if ($profileSettings.EDGERemove) { "yes" } else { "no" } }
+        if (-not $AIRemove) { $AIRemove = if ($profileSettings.AIRemove) { "yes" } else { "no" } }
+        if (-not $TPMBypass) { $TPMBypass = if ($profileSettings.TPMBypass) { "yes" } else { "no" } }
+        if (-not $UserFoldersEnable) { $UserFoldersEnable = if ($profileSettings.UserFoldersEnable) { "yes" } else { "no" } }
+        if (-not $DriverIntegrate) { $DriverIntegrate = if ($profileSettings.DriverIntegrate) { "yes" } else { "no" } }
+        if (-not $ESDConvert) { $ESDConvert = if ($profileSettings.ESDConvert) { "yes" } else { "no" } }
+        if (-not $useOscdimg) { $useOscdimg = if ($profileSettings.useOscdimg) { "yes" } else { "no" } }
+    }
+} elseif (-not $noPrompt -and $scriptConfig -and -not $profile) {
+    # Show available profiles to user
+    Show-AvailableProfiles -Config $scriptConfig
+    Write-Host "  (Use -profile <name> to auto-apply, or continue with manual selection)`n" -ForegroundColor DarkGray
+}
 
 Write-Host
 $DoAppxRemove = Get-ParameterValue -ParameterValue $AppxRemove -DefaultValue $true -Question "Remove unnecessary packages?" -Description "Recommended: Removes bloatware apps"
@@ -596,84 +768,119 @@ $DoUserFoldersEnable = Get-ParameterValue -ParameterValue $UserFoldersEnable -De
 $DoDriverIntegrate = Get-ParameterValue -ParameterValue $DriverIntegrate -DefaultValue $false -Question "Integrate Intel RST/VMD drivers?" -Description "Optional: Helps with Intel VMD storage controllers"
 $DoESDConvert = Get-ParameterValue -ParameterValue $ESDConvert -DefaultValue $false -Question "Compress the ISO?" -Description "Recommended but slow: Reduces ISO file size"
 $DoUseOscdimg = Get-ParameterValue -ParameterValue $useOscdimg -DefaultValue $true -Question "Use Oscdimg for ISO creation?" -Description "Recommended: Oscdimg is more reliable"
+$DoWin11Tweaks = Get-ParameterValue -ParameterValue $Win11Tweaks -DefaultValue $true -Question "Apply Win11Debloat tweaks?" -Description "Recommended: Extra privacy/UI tweaks from Win11Debloat"
 
-# Comment out the package don't wanna remove
-$appxPatternsToRemove = @(
-    "Microsoft.Microsoft3DViewer*",             # 3DViewer
-    "Microsoft.WindowsAlarms*",                 # Alarms
-    "Microsoft.BingNews*",                      # Bing News
-    "Microsoft.BingSearch*",                    # Bing Search
-    "Microsoft.BingWeather*",                   # Bing Weather (Removing Breaks Widgets)
-    "Windows.CBSPreview*",                      # CBS Preview
-    "Clipchamp.Clipchamp*",                     # Clipchamp
-    "Microsoft.549981C3F5F10*",                 # Cortana
-    "MicrosoftWindows.CrossDevice*",            # CrossDevice
-    "Microsoft.Windows.DevHome*",               # DevHome
-    "MicrosoftCorporationII.MicrosoftFamily*",  # Family
-    "Microsoft.WindowsFeedbackHub*",            # FeedbackHub
-    "Microsoft.GetHelp*",                       # GetHelp
-    "Microsoft.Getstarted*",                    # GetStarted
-    "Microsoft.WindowsCommunicationsapps*",     # Mail
-    "Microsoft.WindowsMaps*",                   # Maps
-    "Microsoft.MixedReality.Portal*",           # MixedReality
-    "Microsoft.ZuneMusic*",                     # Music
-    "Microsoft.MicrosoftOfficeHub*",            # OfficeHub
-    "Microsoft.Office.OneNote*",                # OneNote
-    "Microsoft.OutlookForWindows*",             # Outlook
-    "Microsoft.MSPaint*",                       # Paint3D(Windows10)
-    "Microsoft.People*",                        # People
-    "Microsoft.Windows.PeopleExperienceHost*",  # PeopleExperienceHost
-    "Microsoft.YourPhone*",                     # Phone
-    "Microsoft.PowerAutomateDesktop*",          # PowerAutomate
-    "MicrosoftCorporationII.QuickAssist*",      # QuickAssist
-    "Microsoft.SkypeApp*",                      # Skype
-    "Microsoft.MicrosoftStickyNotes*",          # Sticky Notes
-    "Microsoft.MicrosoftSolitaireCollection*",  # SolitaireCollection
-    # "Microsoft.WindowsSoundRecorder*",          # SoundRecorder
-    "MicrosoftTeams*",                          # Teams_old
-    "MSTeams*",                                 # Teams
-    "Microsoft.Windows.Teams*",                 # Teams
-    "Microsoft.Todos*",                         # Todos
-    "Microsoft.ZuneVideo*",                     # Video
-    "Microsoft.Wallet*",                        # Wallet
-    "Microsoft.GamingApp*",                     # Xbox
-    "Microsoft.XboxApp*",                       # Xbox(Win10)
-    "Microsoft.XboxGameOverlay*",               # XboxGameOverlay
-    "Microsoft.XboxGamingOverlay*",             # XboxGamingOverlay
-    # "Microsoft.XboxIdentityProvider*",          # Xbox Identity Provider (Removing Breaks some Xbox Games)
-    "Microsoft.XboxSpeechToTextOverlay*",       # XboxSpeechToTextOverlay
-    "Microsoft.Xbox.TCUI*"                      # XboxTitleCallableUI
-    # "Microsoft.SecHealthUI*"                    # Windows Security (Caution)
-)
+# Dry-run mode: show what would be done and exit
+if ($dryRun) {
+    Write-Host "`n========== DRY RUN MODE ==========" -ForegroundColor Magenta
+    Write-Host "The following operations would be performed:" -ForegroundColor Magenta
+    Write-Host "  ISO Source:           $isoFilePath"
+    Write-Host "  Windows Edition:      $($selectedImage.ImageName) (Index: $sourceIndex)"
+    Write-Host "  Build Number:         $buildNumber"
+    Write-Host "  Language:             $langCode"
+    Write-Host ""
+    Write-Host "  Remove AppX Packages: $(if ($DoAppxRemove) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoAppxRemove) {'Green'} else {'Gray'})
+    Write-Host "  Remove Capabilities:  $(if ($DoCapabilitiesRemove) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoCapabilitiesRemove) {'Green'} else {'Gray'})
+    Write-Host "  Remove OneDrive:      $(if ($DoOnedriveRemove) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoOnedriveRemove) {'Green'} else {'Gray'})
+    Write-Host "  Remove Edge:          $(if ($DoEDGERemove) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoEDGERemove) {'Green'} else {'Gray'})
+    Write-Host "  Remove AI:            $(if ($DoAIRemove) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoAIRemove) {'Green'} else {'Gray'})
+    Write-Host "  TPM Bypass:           $(if ($DoTPMBypass) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoTPMBypass) {'Green'} else {'Gray'})
+    Write-Host "  User Folders:         $(if ($DoUserFoldersEnable) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoUserFoldersEnable) {'Green'} else {'Gray'})
+    Write-Host "  Driver Integration:   $(if ($DoDriverIntegrate) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoDriverIntegrate) {'Green'} else {'Gray'})
+    Write-Host "  ESD Compression:      $(if ($DoESDConvert) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoESDConvert) {'Green'} else {'Gray'})
+    Write-Host "  Use Oscdimg:          $(if ($DoUseOscdimg) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoUseOscdimg) {'Green'} else {'Gray'})
+    Write-Host "  Win11Debloat Tweaks:  $(if ($DoWin11Tweaks) {'Yes'} else {'No'})" -ForegroundColor $(if ($DoWin11Tweaks) {'Green'} else {'Gray'})
+    Write-Host "`n========== END DRY RUN ===========" -ForegroundColor Magenta
+    Write-Host "No changes were made. Remove -dryRun to execute." -ForegroundColor Yellow
+    Write-Log -msg "Dry run completed - no changes made"
+    # Cleanup mounted image
+    Invoke-DismFailsafe {Dismount-WindowsImage -Path $installMountDir -Discard} {dism /unmount-image /mountdir:$installMountDir /discard}
+    Remove-TempFiles
+    Pause
+    Exit
+}
 
-$capabilitiesToRemove = @(
-    "Browser.InternetExplorer*",
-    "Internet-Explorer*",
-    "App.StepsRecorder*",
-    "Language.Handwriting~~~$langCode*",
-    "Language.OCR~~~$langCode*",
-    "Language.Speech~~~$langCode*",
-    "Language.TextToSpeech~~~$langCode*",
-    "Microsoft.Windows.WordPad*",
-    "MathRecognizer*",
-    "Microsoft.Windows.PowerShell.ISE*",
-    # "Hello.Face*",                                # Removing Breaks Windows-Hello
-    "Media.WindowsMediaPlayer*"
-)
+# Load package lists from config.json or use built-in defaults
+if ($scriptConfig) {
+    $appxPatternsToRemove = @($scriptConfig.appxPackagesToRemove)
+    $capabilitiesToRemove = @($scriptConfig.capabilitiesToRemove)
+    $windowsPackagesToRemove = @($scriptConfig.windowsPackagesToRemove)
+    Write-Log -msg "Package lists loaded from config.json"
+} else {
+    # Built-in defaults (fallback if config.json is missing)
+    $appxPatternsToRemove = @(
+        "Microsoft.Microsoft3DViewer*",             # 3DViewer
+        "Microsoft.WindowsAlarms*",                 # Alarms
+        "Microsoft.BingNews*",                      # Bing News
+        "Microsoft.BingSearch*",                    # Bing Search
+        "Microsoft.BingWeather*",                   # Bing Weather (Removing Breaks Widgets)
+        "Windows.CBSPreview*",                      # CBS Preview
+        "Clipchamp.Clipchamp*",                     # Clipchamp
+        "Microsoft.549981C3F5F10*",                 # Cortana
+        "MicrosoftWindows.CrossDevice*",            # CrossDevice
+        "Microsoft.Windows.DevHome*",               # DevHome
+        "MicrosoftCorporationII.MicrosoftFamily*",  # Family
+        "Microsoft.WindowsFeedbackHub*",            # FeedbackHub
+        "Microsoft.GetHelp*",                       # GetHelp
+        "Microsoft.Getstarted*",                    # GetStarted
+        "Microsoft.WindowsCommunicationsapps*",     # Mail
+        "Microsoft.WindowsMaps*",                   # Maps
+        "Microsoft.MixedReality.Portal*",           # MixedReality
+        "Microsoft.ZuneMusic*",                     # Music
+        "Microsoft.MicrosoftOfficeHub*",            # OfficeHub
+        "Microsoft.Office.OneNote*",                # OneNote
+        "Microsoft.OutlookForWindows*",             # Outlook
+        "Microsoft.MSPaint*",                       # Paint3D(Windows10)
+        "Microsoft.People*",                        # People
+        "Microsoft.Windows.PeopleExperienceHost*",  # PeopleExperienceHost
+        "Microsoft.YourPhone*",                     # Phone
+        "Microsoft.PowerAutomateDesktop*",          # PowerAutomate
+        "MicrosoftCorporationII.QuickAssist*",      # QuickAssist
+        "Microsoft.SkypeApp*",                      # Skype
+        "Microsoft.MicrosoftStickyNotes*",          # Sticky Notes
+        "Microsoft.MicrosoftSolitaireCollection*",  # SolitaireCollection
+        "MicrosoftTeams*",                          # Teams_old
+        "MSTeams*",                                 # Teams
+        "Microsoft.Windows.Teams*",                 # Teams
+        "Microsoft.Todos*",                         # Todos
+        "Microsoft.ZuneVideo*",                     # Video
+        "Microsoft.Wallet*",                        # Wallet
+        "Microsoft.GamingApp*",                     # Xbox
+        "Microsoft.XboxApp*",                       # Xbox(Win10)
+        "Microsoft.XboxGameOverlay*",               # XboxGameOverlay
+        "Microsoft.XboxGamingOverlay*",             # XboxGamingOverlay
+        "Microsoft.XboxSpeechToTextOverlay*",       # XboxSpeechToTextOverlay
+        "Microsoft.Xbox.TCUI*"                      # XboxTitleCallableUI
+    )
 
-$windowsPackagesToRemove = @(
-    "Microsoft-Windows-InternetExplorer-Optional-Package*",
-    "Microsoft-Windows-LanguageFeatures-Handwriting-$langCode-Package*",
-    "Microsoft-Windows-LanguageFeatures-OCR-$langCode-Package*",
-    "Microsoft-Windows-LanguageFeatures-Speech-$langCode-Package*",
-    "Microsoft-Windows-LanguageFeatures-TextToSpeech-$langCode-Package*",
-    "Microsoft-Windows-Wallpaper-Content-Extended-FoD-Package*",
-    "Microsoft-Windows-WordPad-FoD-Package*",
-    "Microsoft-Windows-MediaPlayer-Package*",
-    "Microsoft-Windows-TabletPCMath-Package*",
-    # "Microsoft-Windows-Hello-Face-Package",       # Removing Breaks Windows-Hello
-    "Microsoft-Windows-StepsRecorder-Package*"
-)
+    $capabilitiesToRemove = @(
+        "Browser.InternetExplorer*",
+        "Internet-Explorer*",
+        "App.StepsRecorder*",
+        "Language.Handwriting~~~$langCode*",
+        "Language.OCR~~~$langCode*",
+        "Language.Speech~~~$langCode*",
+        "Language.TextToSpeech~~~$langCode*",
+        "Microsoft.Windows.WordPad*",
+        "MathRecognizer*",
+        "Microsoft.Windows.PowerShell.ISE*",
+        "Media.WindowsMediaPlayer*"
+    )
+
+    $windowsPackagesToRemove = @(
+        "Microsoft-Windows-InternetExplorer-Optional-Package*",
+        "Microsoft-Windows-LanguageFeatures-Handwriting-$langCode-Package*",
+        "Microsoft-Windows-LanguageFeatures-OCR-$langCode-Package*",
+        "Microsoft-Windows-LanguageFeatures-Speech-$langCode-Package*",
+        "Microsoft-Windows-LanguageFeatures-TextToSpeech-$langCode-Package*",
+        "Microsoft-Windows-Wallpaper-Content-Extended-FoD-Package*",
+        "Microsoft-Windows-WordPad-FoD-Package*",
+        "Microsoft-Windows-MediaPlayer-Package*",
+        "Microsoft-Windows-TabletPCMath-Package*",
+        "Microsoft-Windows-StepsRecorder-Package*"
+    )
+    Write-Log -msg "Using built-in package lists (config.json not found)"
+}
 
 function Remove-Packages {
     param( [string[]]$Patterns, [string]$SectionTitle, [string]$PackageType, [string]$MountPath, [int]$StartIndex = 1, [int]$TotalCount, [int]$StatusColumn )
@@ -842,12 +1049,7 @@ if ($DoEDGERemove) {
     # Modifying reg keys
     Write-Host "  - Tweaking registry..." -ForegroundColor DarkGray
     Write-Log -msg "Registry tweaks for EDGE"
-    try {
-        reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
-        reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
-        reg load HKLM\zNTUSER "$installMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
-        reg load HKLM\zDEFAULT "$installMountDir\Windows\System32\config\default" 2>&1 | Write-Log
-
+    Invoke-WithLoadedHives -MountPath $installMountDir -HiveSet "Boot" -ScriptBlock {
         # Registry operations
         reg delete "HKLM\zSOFTWARE\Microsoft\EdgeUpdate" /f 2>&1 | Write-Log
         reg delete "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge" /f 2>&1 | Write-Log
@@ -885,16 +1087,6 @@ if ($DoEDGERemove) {
             reg add "$key" /v "UpdaterExperimentationAndConfigurationServiceControl" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
             reg add "$key" /v "InstallDefault" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
         }
-    }
-    catch {
-        Write-Log -msg "Error modifying registry: $_"
-    }
-    finally {
-        # Always unload registry hives regardless of errors
-        reg unload HKLM\zSOFTWARE 2>&1 | Write-Log
-        reg unload HKLM\zSYSTEM 2>&1 | Write-Log
-        reg unload HKLM\zNTUSER 2>&1 | Write-Log
-        reg unload HKLM\zDEFAULT 2>&1 | Write-Log
     }
 
     # Remove EDGE files
@@ -989,11 +1181,7 @@ if ($buildNumber -ge 22000) {
         # Modifying reg keys
         Write-Host "  - Tweaking registry..." -ForegroundColor DarkGray
         Write-Log -msg "Registry tweaks for RemoveAI"
-        try {
-            reg load HKLM\zSOFTWARE "$installMountDir\Windows\System32\config\SOFTWARE" 2>&1 | Write-Log
-            reg load HKLM\zSYSTEM "$installMountDir\Windows\System32\config\SYSTEM" 2>&1 | Write-Log
-            reg load HKLM\zNTUSER "$installMountDir\Users\Default\ntuser.dat" 2>&1 | Write-Log
-
+        Invoke-WithLoadedHives -MountPath $installMountDir -HiveSet "SoftwareSystemUser" -ScriptBlock {
             # Registry operations
             reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\Explorer" /v "DisableSearchBoxSuggestions" /t REG_DWORD /d "1" /f 2>&1 | Write-Log
             # Disable AI in Notepad
@@ -1071,15 +1259,6 @@ if ($buildNumber -ge 22000) {
             Set-OwnAndRemove -Path "$installMountDir\Windows\System32\Tasks\Microsoft\Windows\WindowsAI" | Out-Null
             # Disable Recall on first logon
             reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v "DisableRecall" /t REG_SZ /d "dism.exe /online /disable-feature /FeatureName:recall" /f 2>&1 | Write-Log
-        }
-        catch {
-            Write-Log -msg "Error modifying registry: $_"
-        }
-        finally {
-            # Always unload registry hives regardless of errors
-            reg unload HKLM\zSOFTWARE 2>&1 | Write-Log
-            reg unload HKLM\zSYSTEM 2>&1 | Write-Log
-            reg unload HKLM\zNTUSER 2>&1 | Write-Log
         }
         Write-Host ("[OK] AI Components removed") -ForegroundColor Green
         Write-Log -msg "AI Components removal completed"
@@ -1293,6 +1472,76 @@ reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCach
 reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip" /f 2>&1 | Write-Log
 reg delete "HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\Customer Experience Improvement Program" /f 2>&1 | Write-Log
 Write-Host "[DONE]" -ForegroundColor Green
+
+# Apply Win11Debloat tweaks (registry hives are already loaded at this point)
+if ($DoWin11Tweaks) {
+    if ($Win11TweaksList) {
+        $tweakNames = $Win11TweaksList -split ',' | ForEach-Object { $_.Trim() }
+        Apply-Win11DebloatTweaks -MountPath $installMountDir -Tweaks $tweakNames -StatusColumn $statusColumn
+    } else {
+        Apply-Win11DebloatTweaks -MountPath $installMountDir -Tweaks @("All") -StatusColumn $statusColumn
+    }
+} else {
+    Write-Log -msg "Win11Debloat tweaks skipped"
+}
+
+# Apply Advanced tweaks (services, defender, power, etc.)
+if ($AdvancedTweaks -eq "yes" -or ($AdvancedTweaksList -and $AdvancedTweaksList -ne "")) {
+    if ($AdvancedTweaksList) {
+        $advTweakNames = $AdvancedTweaksList -split ',' | ForEach-Object { $_.Trim() }
+    } else {
+        $advTweakNames = @("DisableServices", "DisableHibernation", "EnableUltimatePerformance", "DisableNotifications")
+    }
+    Apply-AdvancedTweaks -MountPath $installMountDir -Tweaks $advTweakNames -StatusColumn $statusColumn
+} else {
+    Write-Log -msg "Advanced tweaks skipped"
+}
+
+# Inject post-install scripts (non-critical - failures here must not abort the build)
+if ($PostInstallScript -or $WinGetApps) {
+    try {
+        $postInstallCommands = @()
+        if ($PostInstallScript -and (Test-Path $PostInstallScript)) {
+            Add-PostInstallScript -MountPath $installMountDir -DestinationPath $destinationPath -ScriptPath $PostInstallScript
+        } else {
+            Add-PostInstallScript -MountPath $installMountDir -DestinationPath $destinationPath -Commands $postInstallCommands
+        }
+        # WinGet apps auto-install
+        if ($WinGetApps) {
+            $appList = @($WinGetApps -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            if ($appList.Count -gt 0) {
+                # Download installers now and bake them into the ISO for offline first-boot install
+                Add-OfflineAppInstallers -MountPath $installMountDir -Apps $appList
+            }
+        }
+    }
+    catch {
+        Write-Host "[WARN] Post-install script injection failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Log -msg "Post-install injection failed (non-critical): $($_.Exception.Message)"
+    }
+}
+
+# Custom wallpaper (non-critical)
+if ($CustomWallpaper -and (Test-Path $CustomWallpaper)) {
+    try {
+        Set-CustomWallpaper -MountPath $installMountDir -WallpaperPath $CustomWallpaper
+    }
+    catch {
+        Write-Host "[WARN] Custom wallpaper failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Log -msg "Custom wallpaper failed (non-critical): $($_.Exception.Message)"
+    }
+}
+
+# Clean Start Menu (non-critical)
+if ($CleanStartMenu -eq "yes") {
+    try {
+        Set-CleanStartMenu -MountPath $installMountDir
+    }
+    catch {
+        Write-Host "[WARN] Clean Start Menu failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Log -msg "Clean Start Menu failed (non-critical): $($_.Exception.Message)"
+    }
+}
 
 # Disable TPM CHeck
 if ($DoTPMBypass) {
@@ -1612,8 +1861,8 @@ try {
 
 Write-Log -msg "Checking required files"
 if ($outputISO) {
-    $ISOFileName = ($ISOFileName -replace '[<>:"/\\|?*\x00-\x1F\s]', '').Trim()
     $ISOFileName = [System.IO.Path]::GetFileNameWithoutExtension($outputISO)
+    $ISOFileName = ($ISOFileName -replace '[<>:"/\\|?*\x00-\x1F\s]', '').Trim()
 } else {
     do {
         $ISOFileName = Read-Host -Prompt "`nEnter the name for the ISO file (without extension)"
@@ -1665,6 +1914,21 @@ if ($DoUseOscdimg) {
 
             if (Test-Path $ExtractedFilePath) {
                 Move-Item -Path $ExtractedFilePath -Destination $FinalFilePath -Force 2>&1 | Write-Log
+
+                # Verify hash of downloaded oscdimg.exe
+                if ($scriptConfig -and $scriptConfig.oscdimgHash) {
+                    $hashValid = Test-FileHash -FilePath $FinalFilePath -ExpectedHash $scriptConfig.oscdimgHash
+                    if (-not $hashValid) {
+                        Write-Host "  Warning: oscdimg.exe hash verification failed. File may be corrupted." -ForegroundColor Yellow
+                        Write-Log -msg "oscdimg.exe hash verification failed"
+                    } else {
+                        Write-Log -msg "oscdimg.exe hash verification passed"
+                    }
+                } else {
+                    $fileHash = Get-FileHashValue -FilePath $FinalFilePath
+                    Write-Log -msg "oscdimg.exe SHA256: $fileHash (no expected hash configured for verification)"
+                }
+
                 Write-Host "Oscdimg.exe downloaded successfully" -ForegroundColor Green
                 Write-Log -msg "Oscdimg.exe successfully placed in: $OscdimgPath"
             }
@@ -1780,10 +2044,12 @@ else {
 
         if ((Get-Item $ISOFile).Length -eq ($resultImage.BlockSize * $resultImage.TotalBlocks)) {
             Write-Log -msg "ISO successfully created at: $ISOFile"
+            $imapiSuccess = $true
         }
     }
     catch {
-        Write-Log -msg "ISO creation failed: $_" -Type Error
+        Write-Log -msg "ISO creation failed: $_"
+        $imapiSuccess = $false
     }
     finally {
         foreach ($obj in $comObjects) {
@@ -1793,7 +2059,11 @@ else {
         }
         [GC]::Collect()
         [GC]::WaitForPendingFinalizers()
-        Write-Host "[OK] ISO creation successful" -ForegroundColor Green
+        if ($imapiSuccess) {
+            Write-Host "[OK] ISO creation successful" -ForegroundColor Green
+        } else {
+            Write-Host "[FAILED] ISO creation failed. Check logs for details." -ForegroundColor Red
+        }
     }
 }
 
@@ -1826,6 +2096,9 @@ if (Test-Path -Path $ISOFile) {
     Write-Log -msg "ISO file wasn't created"
 }
 
+# Show ISO modification metrics/summary
+Show-ISOMetrics -OriginalWimSize $metricsData.OriginalWimSize -FinalISOPath $ISOFile -WimPath "$destinationPath\sources\install.wim" -StartTime $metricsData.StartTime
+
 # Remove temporary files
 Write-Log -msg "Removing temporary files"
 try {
@@ -1838,5 +2111,14 @@ finally {
     Write-Log -msg "Script completed"
 }
 
-Write-Host
-Pause
+# Completion marker for GUI / automation (easy to detect in captured output)
+if (Test-Path -Path $ISOFile) {
+    Write-Host "`n=== WID_DONE_SUCCESS === $ISOFile" -ForegroundColor Green
+} else {
+    Write-Host "`n=== WID_DONE_FAILED ===" -ForegroundColor Red
+}
+
+if (-not $noPrompt) {
+    Write-Host
+    Pause
+}

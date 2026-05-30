@@ -1,0 +1,27 @@
+# Windows ISO Debloater - ignored files
+
+# ISO images (large, user-provided test files)
+*.iso
+*.esd
+*.wim
+*.swm
+
+# Generated runtime log
+script_log.txt
+
+# Working / temp output
+WIDTemp/
+*.tmp
+transcript_*.txt
+
+# Local dev / test scaffolding
+test-*.ps1
+fix-*.ps1
+debug-*.bat
+TEST-*.bat
+
+# OS / editor cruft
+Thumbs.db
+desktop.ini
+.vs/
+.vscode/

@@ -50,6 +50,11 @@ Download the latest `isoDebloater.ps1` from [here](https://github.com/itsNileshH
 -winEdition "Name"          # Name of Windows image to process (e.g., "Windows 11 Pro")
 -outputISO "Name"           # Output ISO filename (without extension)
 
+# NEW PARAMETERS
+-dryRun                     # Preview what would be done without making changes
+-profile "Name"             # Apply a preset profile (minimal, gaming, office)
+-outputISO "Name"           # Output ISO filename (without extension)
+
 # CUSTOMIZATION PARAMETERS (All accept "yes" or "no") [Optional]
 -useDISM "yes"              # Use DISM.exe instead of PS cmdlets [Default: yes]
 -AppxRemove "yes"           # Remove Microsoft Store apps [Default: yes]
@@ -78,6 +83,12 @@ Download the latest `isoDebloater.ps1` from [here](https://github.com/itsNileshH
 
 # Integrate Intel RAID/VMD drivers:
 .\isoDebloaterScript.ps1 -isoPath "C:\path\to\windows.iso" -DriverIntegrate yes
+
+# Use a profile for quick setup:
+.\isoDebloaterScript.ps1 -profile minimal -noPrompt -isoPath "C:\path\to\windows.iso" -winEdition "Windows 11 Pro" -outputISO "Win11Minimal"
+
+# Dry run to preview changes without modifying anything:
+.\isoDebloaterScript.ps1 -dryRun -isoPath "C:\path\to\windows.iso"
 ```
 
 ## 📝 Step-by-Step Usage Guide
@@ -89,6 +100,28 @@ Download the latest `isoDebloater.ps1` from [here](https://github.com/itsNileshH
 5. A debloated ISO will be generated in the **same directory as the script**.
 
 ## 🛠️ Advanced Customization
+
+### Configuration File (config.json)
+
+Instead of editing the script directly, you can customize which packages to remove by editing `config.json`:
+
+- **appxPackagesToRemove**: Microsoft Store apps to remove
+- **appxPackagesToKeep**: Apps that should never be removed (safety list)
+- **capabilitiesToRemove**: Windows capabilities to remove
+- **windowsPackagesToRemove**: Windows packages to remove
+- **profiles**: Pre-configured settings for common use cases
+
+### Profiles
+
+Three built-in profiles are available:
+
+| Profile | Description |
+|---------|-------------|
+| `minimal` | Removes everything possible for smallest ISO |
+| `gaming` | Keeps Xbox Identity Provider, removes bloat |
+| `office` | Keeps Edge and OneDrive for productivity |
+
+Usage: `.\isoDebloaterScript.ps1 -profile minimal`
 
 ### Packages & Features
 

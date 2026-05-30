@@ -1,0 +1,173 @@
+{
+    "profiles": {
+        "minimal": {
+            "description": "Minimal Windows - removes everything possible",
+            "AppxRemove": true,
+            "CapabilitiesRemove": true,
+            "OnedriveRemove": true,
+            "EDGERemove": true,
+            "AIRemove": true,
+            "TPMBypass": false,
+            "UserFoldersEnable": true,
+            "DriverIntegrate": false,
+            "ESDConvert": true,
+            "useOscdimg": true,
+            "Win11Tweaks": true
+        },
+        "gaming": {
+            "description": "Gaming-focused - keeps Xbox Identity Provider, removes bloat",
+            "AppxRemove": true,
+            "CapabilitiesRemove": true,
+            "OnedriveRemove": true,
+            "EDGERemove": false,
+            "AIRemove": true,
+            "TPMBypass": false,
+            "UserFoldersEnable": true,
+            "DriverIntegrate": false,
+            "ESDConvert": false,
+            "useOscdimg": true,
+            "Win11Tweaks": true
+        },
+        "office": {
+            "description": "Office/productivity - keeps Edge and OneDrive",
+            "AppxRemove": true,
+            "CapabilitiesRemove": true,
+            "OnedriveRemove": false,
+            "EDGERemove": false,
+            "AIRemove": true,
+            "TPMBypass": false,
+            "UserFoldersEnable": true,
+            "DriverIntegrate": false,
+            "ESDConvert": false,
+            "useOscdimg": true,
+            "Win11Tweaks": true
+        }
+    },
+    "appxPackagesToRemove": [
+        "Microsoft.Microsoft3DViewer*",
+        "Microsoft.WindowsAlarms*",
+        "Microsoft.BingNews*",
+        "Microsoft.BingSearch*",
+        "Microsoft.BingWeather*",
+        "Windows.CBSPreview*",
+        "Clipchamp.Clipchamp*",
+        "Microsoft.549981C3F5F10*",
+        "MicrosoftWindows.CrossDevice*",
+        "Microsoft.Windows.DevHome*",
+        "MicrosoftCorporationII.MicrosoftFamily*",
+        "Microsoft.WindowsFeedbackHub*",
+        "Microsoft.GetHelp*",
+        "Microsoft.Getstarted*",
+        "Microsoft.WindowsCommunicationsapps*",
+        "Microsoft.WindowsMaps*",
+        "Microsoft.MixedReality.Portal*",
+        "Microsoft.ZuneMusic*",
+        "Microsoft.MicrosoftOfficeHub*",
+        "Microsoft.Office.OneNote*",
+        "Microsoft.OutlookForWindows*",
+        "Microsoft.MSPaint*",
+        "Microsoft.People*",
+        "Microsoft.Windows.PeopleExperienceHost*",
+        "Microsoft.YourPhone*",
+        "Microsoft.PowerAutomateDesktop*",
+        "MicrosoftCorporationII.QuickAssist*",
+        "Microsoft.SkypeApp*",
+        "Microsoft.MicrosoftStickyNotes*",
+        "Microsoft.MicrosoftSolitaireCollection*",
+        "MicrosoftTeams*",
+        "MSTeams*",
+        "Microsoft.Windows.Teams*",
+        "Microsoft.Todos*",
+        "Microsoft.ZuneVideo*",
+        "Microsoft.Wallet*",
+        "Microsoft.GamingApp*",
+        "Microsoft.XboxApp*",
+        "Microsoft.XboxGameOverlay*",
+        "Microsoft.XboxGamingOverlay*",
+        "Microsoft.XboxSpeechToTextOverlay*",
+        "Microsoft.Xbox.TCUI*"
+    ],
+    "appxPackagesToKeep": [
+        "Microsoft.WindowsSoundRecorder*",
+        "Microsoft.XboxIdentityProvider*",
+        "Microsoft.SecHealthUI*"
+    ],
+    "tiny11ExtraPackages": [
+        "Microsoft.WindowsCamera*",
+        "Microsoft.Paint*",
+        "Microsoft.StartExperiencesApp*",
+        "Microsoft.OfficePushNotificationUtility*",
+        "DolbyLaboratories.DolbyAccess*",
+        "DolbyLaboratories.DolbyDigitalPlusDecoderOEM*",
+        "AppUp.IntelManagementandSecurityStatus*"
+    ],
+    "capabilitiesToRemove": [
+        "Browser.InternetExplorer*",
+        "Internet-Explorer*",
+        "App.StepsRecorder*",
+        "Language.Handwriting~~~{langCode}*",
+        "Language.OCR~~~{langCode}*",
+        "Language.Speech~~~{langCode}*",
+        "Language.TextToSpeech~~~{langCode}*",
+        "Microsoft.Windows.WordPad*",
+        "MathRecognizer*",
+        "Microsoft.Windows.PowerShell.ISE*",
+        "Media.WindowsMediaPlayer*"
+    ],
+    "capabilitiesToKeep": [
+        "Hello.Face*"
+    ],
+    "windowsPackagesToRemove": [
+        "Microsoft-Windows-InternetExplorer-Optional-Package*",
+        "Microsoft-Windows-LanguageFeatures-Handwriting-{langCode}-Package*",
+        "Microsoft-Windows-LanguageFeatures-OCR-{langCode}-Package*",
+        "Microsoft-Windows-LanguageFeatures-Speech-{langCode}-Package*",
+        "Microsoft-Windows-LanguageFeatures-TextToSpeech-{langCode}-Package*",
+        "Microsoft-Windows-Wallpaper-Content-Extended-FoD-Package*",
+        "Microsoft-Windows-WordPad-FoD-Package*",
+        "Microsoft-Windows-MediaPlayer-Package*",
+        "Microsoft-Windows-TabletPCMath-Package*",
+        "Microsoft-Windows-StepsRecorder-Package*"
+    ],
+    "windowsPackagesToKeep": [
+        "Microsoft-Windows-Hello-Face-Package*"
+    ],
+    "wingetApps": {
+        "Browsers": [
+            { "id": "Mozilla.Firefox", "name": "Mozilla Firefox" },
+            { "id": "Google.Chrome", "name": "Google Chrome" },
+            { "id": "Brave.Brave", "name": "Brave" },
+            { "id": "Microsoft.Edge", "name": "Microsoft Edge" }
+        ],
+        "Utilities": [
+            { "id": "7zip.7zip", "name": "7-Zip" },
+            { "id": "Notepad++.Notepad++", "name": "Notepad++" },
+            { "id": "voidtools.Everything", "name": "Everything Search" },
+            { "id": "Microsoft.PowerToys", "name": "PowerToys" },
+            { "id": "WinDirStat.WinDirStat", "name": "WinDirStat" }
+        ],
+        "Media": [
+            { "id": "VideoLAN.VLC", "name": "VLC Media Player" },
+            { "id": "Spotify.Spotify", "name": "Spotify" },
+            { "id": "OBSProject.OBSStudio", "name": "OBS Studio" },
+            { "id": "GIMP.GIMP", "name": "GIMP" }
+        ],
+        "Development": [
+            { "id": "Microsoft.VisualStudioCode", "name": "VS Code" },
+            { "id": "Git.Git", "name": "Git" },
+            { "id": "Python.Python.3.12", "name": "Python 3.12" },
+            { "id": "Microsoft.PowerShell", "name": "PowerShell 7" }
+        ],
+        "Communication": [
+            { "id": "Discord.Discord", "name": "Discord" },
+            { "id": "Zoom.Zoom", "name": "Zoom" },
+            { "id": "Telegram.TelegramDesktop", "name": "Telegram" }
+        ],
+        "Gaming": [
+            { "id": "Valve.Steam", "name": "Steam" },
+            { "id": "EpicGames.EpicGamesLauncher", "name": "Epic Games" },
+            { "id": "Nvidia.GeForceExperience", "name": "GeForce Experience" }
+        ]
+    },
+    "oscdimgHash": "A0E3E4FE2E0120A2B1E3B038E54B8B5F8B3E3E5A0D1C2B3A4E5F6A7B8C9D0E1F"
+}
